@@ -191,8 +191,15 @@ export class ProfilerPanel {
             })
             .filter(name => name.length > 0);
 
+        // Find React Native project directory (supports monorepos)
+        const rnPath = await this.findReactNativeProject(workspaceFolders[0].uri);
+        if (!rnPath) {
+            vscode.window.showErrorMessage('Could not find React Native project directory');
+            return;
+        }
+
         const configPath = vscode.Uri.joinPath(
-            workspaceFolders[0].uri,
+            vscode.Uri.file(rnPath),
             'src',
             'rn-profiler-config.ts'
         );
@@ -213,6 +220,41 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(componentNames, 
             console.error('Failed to update selected components:', error);
             vscode.window.showErrorMessage('Failed to update component selection');
         }
+    }
+
+    /**
+     * Finds the React Native project directory (supports monorepos)
+     */
+    private async findReactNativeProject(workspaceUri: vscode.Uri): Promise<string | null> {
+        const commonPaths = [
+            '', // Root
+            'apps/mobile',
+            'apps/react-native',
+            'packages/mobile',
+            'packages/app',
+            'mobile',
+            'app'
+        ];
+
+        for (const relPath of commonPaths) {
+            const testUri = relPath ? vscode.Uri.joinPath(workspaceUri, relPath) : workspaceUri;
+            const packageJsonPath = vscode.Uri.joinPath(testUri, 'package.json');
+            
+            try {
+                const content = await vscode.workspace.fs.readFile(packageJsonPath);
+                const packageJson = JSON.parse(content.toString());
+                const hasReactNative = packageJson.dependencies?.['react-native'] || 
+                                     packageJson.devDependencies?.['react-native'];
+                
+                if (hasReactNative) {
+                    return testUri.fsPath;
+                }
+            } catch (error) {
+                // Continue searching
+            }
+        }
+
+        return null;
     }
 
     private update() {

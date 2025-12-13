@@ -19,6 +19,47 @@ export class ComponentTreeProvider {
     }
 
     /**
+     * Finds the React Native project directory (supports monorepos)
+     */
+    private async findReactNativeProject(): Promise<string | null> {
+        if (!this.workspaceRoot) {
+            return null;
+        }
+
+        const commonPaths = [
+            '', // Root
+            'apps/mobile',
+            'apps/react-native',
+            'packages/mobile',
+            'packages/app',
+            'mobile',
+            'app'
+        ];
+
+        for (const relPath of commonPaths) {
+            const testPath = relPath ? path.join(this.workspaceRoot, relPath) : this.workspaceRoot;
+            const packageJsonPath = path.join(testPath, 'package.json');
+            
+            try {
+                if (fs.existsSync(packageJsonPath)) {
+                    const content = fs.readFileSync(packageJsonPath, 'utf8');
+                    const packageJson = JSON.parse(content);
+                    const hasReactNative = packageJson.dependencies?.['react-native'] || 
+                                         packageJson.devDependencies?.['react-native'];
+                    
+                    if (hasReactNative) {
+                        return testPath;
+                    }
+                }
+            } catch (error) {
+                // Continue searching
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Scans the project for React Native components and builds a tree structure
      */
     async getComponentTree(): Promise<ComponentTreeNode[]> {
@@ -26,12 +67,24 @@ export class ComponentTreeProvider {
             return [];
         }
 
-        const srcPath = path.join(this.workspaceRoot, 'src');
+        // Find React Native project (supports monorepos)
+        const rnProjectPath = await this.findReactNativeProject();
+        if (!rnProjectPath) {
+            // Fallback to workspace root
+            const srcPath = path.join(this.workspaceRoot, 'src');
+            const scanPath = fs.existsSync(srcPath) ? srcPath : this.workspaceRoot;
+            return this.scanDirectory(scanPath);
+        }
+
+        // Calculate relative path from workspace root for proper path display
+        const relativeBase = path.relative(this.workspaceRoot, rnProjectPath);
+        const srcPath = path.join(rnProjectPath, 'src');
         
-        // Check if src directory exists, otherwise scan root
-        const scanPath = fs.existsSync(srcPath) ? srcPath : this.workspaceRoot;
+        // Check if src directory exists, otherwise scan the RN project root
+        const scanPath = fs.existsSync(srcPath) ? srcPath : rnProjectPath;
         
-        return this.scanDirectory(scanPath);
+        // Scan with relative path prefix for monorepo support
+        return this.scanDirectory(scanPath, relativeBase ? relativeBase : '');
     }
 
     private async scanDirectory(dirPath: string, relativePath: string = ''): Promise<ComponentTreeNode[]> {
