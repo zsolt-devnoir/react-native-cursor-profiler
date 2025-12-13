@@ -624,16 +624,17 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(componentNames, 
             html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
             html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
             html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
-            // Convert code blocks
-            html = html.replace(/```([\\s\\S]*?)```/g, '<pre><code>$1</code></pre>');
+            // Convert code blocks (using String.fromCharCode for backticks)
+            const backtick = String.fromCharCode(96);
+            html = html.replace(new RegExp(backtick + backtick + backtick + '([\\\\s\\\\S]*?)' + backtick + backtick + backtick, 'g'), '<pre><code>$1</code></pre>');
             // Convert inline code
-            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            html = html.replace(new RegExp(backtick + '([^' + backtick + ']+)' + backtick, 'g'), '<code>$1</code>');
             // Convert links (basic)
             html = html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, (match, text, url) => {
                 if (url.startsWith('file://')) {
-                    return \`<a href="#" onclick="openFile('\${url}')">\${text}</a>\`;
+                    return '<a href="#" onclick="openFile(\\'' + url + '\\')">' + text + '</a>';
                 }
-                return \`<a href="\${url}">\${text}</a>\`;
+                return '<a href="' + url + '">' + text + '</a>';
             });
 
             container.innerHTML = html;

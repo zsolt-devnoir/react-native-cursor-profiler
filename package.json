@@ -3,6 +3,10 @@
   "displayName": "React Native Profiler AI",
   "description": "VS Code extension for React Native performance profiling with AI analysis",
   "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zsolt-devnoir/react-native-cursor-profiler.git"
+  },
   "engines": {
     "vscode": "^1.74.0"
   },
