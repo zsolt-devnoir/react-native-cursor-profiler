@@ -8,7 +8,7 @@ let profilerPanel: ProfilerPanel | undefined;
 let profilerServer: ProfilerServer | undefined;
 let componentTreeProvider: ComponentTreeProvider | undefined;
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
     try {
         console.log('RN Profiler AI extension is now active!');
         vscode.window.showInformationMessage('RN Profiler AI extension activated!');
@@ -150,12 +150,12 @@ export function activate(context: vscode.ExtensionContext) {
             }
         );
 
-    context.subscriptions.push(
-        showPanelCommand,
-        startRecordingCommand,
-        stopRecordingCommand,
-        analyzeLogsCommand
-    );
+        context.subscriptions.push(
+            showPanelCommand,
+            startRecordingCommand,
+            stopRecordingCommand,
+            analyzeLogsCommand
+        );
 
         // Cleanup on deactivation
         context.subscriptions.push({
@@ -166,7 +166,17 @@ export function activate(context: vscode.ExtensionContext) {
             }
         });
 
+        // Verify commands are registered
+        const registeredCommands = await vscode.commands.getCommands();
+        const ourCommands = registeredCommands.filter(cmd => cmd.startsWith('rnProfilerAI.'));
         console.log('RN Profiler AI: All commands registered successfully');
+        console.log('RN Profiler AI: Registered commands:', ourCommands);
+        
+        if (ourCommands.length === 0) {
+            vscode.window.showErrorMessage('RN Profiler AI: No commands were registered! Check the Debug Console for errors.');
+        } else {
+            vscode.window.showInformationMessage(`RN Profiler AI: ${ourCommands.length} commands registered: ${ourCommands.join(', ')}`);
+        }
     } catch (error: any) {
         const errorMessage = `RN Profiler AI activation failed: ${error.message}`;
         console.error(errorMessage, error);
