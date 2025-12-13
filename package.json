@@ -22,21 +22,45 @@
     "commands": [
       {
         "command": "rnProfilerAI.showProfilerPanel",
-        "title": "Show Profiler Panel"
+        "title": "RN Profiler AI: Show Profiler Panel",
+        "category": "RN Profiler AI"
       },
       {
         "command": "rnProfilerAI.startRecording",
-        "title": "Start Recording"
+        "title": "RN Profiler AI: Start Recording",
+        "category": "RN Profiler AI"
       },
       {
         "command": "rnProfilerAI.stopRecording",
-        "title": "Stop Recording"
+        "title": "RN Profiler AI: Stop Recording",
+        "category": "RN Profiler AI"
       },
       {
         "command": "rnProfilerAI.analyzeLogs",
-        "title": "Analyze Logs"
+        "title": "RN Profiler AI: Analyze Logs",
+        "category": "RN Profiler AI"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "rnProfilerAI.showProfilerPanel",
+          "when": "true"
+        },
+        {
+          "command": "rnProfilerAI.startRecording",
+          "when": "true"
+        },
+        {
+          "command": "rnProfilerAI.stopRecording",
+          "when": "true"
+        },
+        {
+          "command": "rnProfilerAI.analyzeLogs",
+          "when": "true"
+        }
+      ]
+    },
     "configuration": {
       "title": "RN Profiler AI",
       "properties": {
