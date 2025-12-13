@@ -1,0 +1,86 @@
+{
+  "name": "rn-profiler-ai",
+  "displayName": "React Native Profiler AI",
+  "description": "VS Code extension for React Native performance profiling with AI analysis",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "rnProfilerAI.showProfilerPanel",
+        "title": "Show Profiler Panel"
+      },
+      {
+        "command": "rnProfilerAI.startRecording",
+        "title": "Start Recording"
+      },
+      {
+        "command": "rnProfilerAI.stopRecording",
+        "title": "Stop Recording"
+      },
+      {
+        "command": "rnProfilerAI.analyzeLogs",
+        "title": "Analyze Logs"
+      }
+    ],
+    "configuration": {
+      "title": "RN Profiler AI",
+      "properties": {
+        "rnProfilerAI.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for OpenAI, Anthropic, or Cursor (stored securely). Optional for Cursor if using built-in AI.",
+          "scope": "application"
+        },
+        "rnProfilerAI.apiProvider": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "anthropic",
+            "cursor"
+          ],
+          "default": "openai",
+          "description": "AI API provider to use. Use 'cursor' when running in Cursor editor to leverage Cursor's built-in AI.",
+          "scope": "application"
+        },
+        "rnProfilerAI.serverPort": {
+          "type": "number",
+          "default": 1337,
+          "description": "Local HTTP server port for receiving profiling data",
+          "scope": "application"
+        },
+        "rnProfilerAI.autoAnalyze": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically analyze logs after stopping recording",
+          "scope": "application"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.74.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.0",
+    "@types/express": "^4.17.21"
+  }
+}
+
