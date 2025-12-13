@@ -4,6 +4,7 @@ import { ProfilerServer } from './profilerServer';
 import { ComponentTreeProvider } from './componentTreeProvider';
 import { ProfileLog, WebViewMessage } from './types';
 import { AIAnalyzer } from './aiAnalyzer';
+import { ComponentWrapper } from './componentWrapper';
 
 /**
  * Manages the WebView panel that displays the profiler UI
@@ -16,6 +17,7 @@ export class ProfilerPanel {
     private server: ProfilerServer | undefined;
     private componentTreeProvider: ComponentTreeProvider;
     private aiAnalyzer: AIAnalyzer;
+    private componentWrapper: ComponentWrapper;
     private storedLogs: ProfileLog[] = [];
     private selectedComponents: string[] = [];
 
@@ -27,6 +29,7 @@ export class ProfilerPanel {
         this.panel = panel;
         this.componentTreeProvider = componentTreeProvider;
         this.aiAnalyzer = new AIAnalyzer(componentTreeProvider);
+        this.componentWrapper = new ComponentWrapper();
 
         // Set the webview's initial html content
         this.update();
@@ -156,6 +159,16 @@ export class ProfilerPanel {
                 await this.updateSelectedComponents(message.components || []);
                 break;
 
+            case 'wrapComponents':
+                // Automatically wrap selected components with withProfiler
+                await this.wrapComponents(message.components || []);
+                break;
+
+            case 'wrapComponents':
+                // Automatically wrap selected components with withProfiler
+                await this.wrapComponents(message.components || []);
+                break;
+
             case 'requestLogs':
                 if (this.server) {
                     this.sendMessage({
@@ -265,6 +278,66 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(componentNames, 
         }
 
         return null;
+    }
+
+    /**
+     * Automatically wraps components with withProfiler HOC
+     */
+    private async wrapComponents(components: string[]) {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            vscode.window.showErrorMessage('No workspace folder found');
+            return;
+        }
+
+        // Find React Native project directory (supports monorepos)
+        const rnPath = await this.findReactNativeProject(workspaceFolders[0].uri);
+        if (!rnPath) {
+            vscode.window.showErrorMessage('Could not find React Native project directory');
+            return;
+        }
+
+        const workspaceRoot = workspaceFolders[0].uri.fsPath;
+        let successCount = 0;
+        let failCount = 0;
+
+        vscode.window.showInformationMessage(`Wrapping ${components.length} components...`);
+
+        for (const componentPath of components) {
+            const [filePath] = componentPath.split('::');
+            const componentName = componentPath.includes('::') 
+                ? componentPath.split('::')[1] 
+                : path.basename(filePath, path.extname(filePath));
+
+            try {
+                const success = await this.componentWrapper.wrapComponent(
+                    componentPath,
+                    componentName,
+                    workspaceRoot
+                );
+                
+                if (success) {
+                    successCount++;
+                } else {
+                    failCount++;
+                }
+            } catch (error: any) {
+                console.error(`Failed to wrap ${componentName}:`, error);
+                failCount++;
+            }
+        }
+
+        if (successCount > 0) {
+            vscode.window.showInformationMessage(
+                `Successfully wrapped ${successCount} component(s). ` +
+                `${failCount > 0 ? `${failCount} failed. ` : ''}` +
+                `Please restart Metro Bundler and ensure components are wrapped with withProfiler.`
+            );
+        } else if (failCount > 0) {
+            vscode.window.showWarningMessage(
+                `Could not automatically wrap components. Please wrap them manually.`
+            );
+        }
     }
 
     private update() {
@@ -481,6 +554,7 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(componentNames, 
                 Profiling Controls
             </div>
             <div class="controls">
+                <button id="wrapBtn">Wrap Components</button>
                 <button id="startBtn" class="primary">Start Recording</button>
                 <button id="stopBtn" disabled>Stop Recording</button>
                 <button id="analyzeBtn" disabled>Analyze Logs</button>
@@ -522,6 +596,15 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(componentNames, 
         });
 
         // Button handlers
+        document.getElementById('wrapBtn').addEventListener('click', () => {
+            const selected = Array.from(selectedComponents);
+            if (selected.length === 0) {
+                alert('Please select components from the tree first');
+                return;
+            }
+            vscode.postMessage({ type: 'wrapComponents', components: selected });
+        });
+
         document.getElementById('startBtn').addEventListener('click', () => {
             vscode.postMessage({ type: 'startRecording' });
         });
