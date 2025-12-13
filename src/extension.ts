@@ -78,8 +78,9 @@ export async function activate(context: vscode.ExtensionContext) {
                             });
                         }
 
-                        // Update RN config file
-                        await updateRNConfig(true, []);
+                        // Update RN config file with selected components
+                        const selectedComponents = profilerPanel?.getSelectedComponents() || [];
+                        await updateRNConfig(true, selectedComponents);
                         
                         vscode.window.showInformationMessage(`Profiling started on port ${port}`);
                     } catch (error: any) {
@@ -109,8 +110,9 @@ export async function activate(context: vscode.ExtensionContext) {
                         });
                     }
 
-                    // Update RN config file
-                    await updateRNConfig(false, []);
+                // Update RN config file with selected components (preserve selection)
+                const selectedComponents = profilerPanel?.getSelectedComponents() || [];
+                await updateRNConfig(false, selectedComponents);
 
                     vscode.window.showInformationMessage(`Recording stopped. Collected ${logs.length} log entries.`);
 
