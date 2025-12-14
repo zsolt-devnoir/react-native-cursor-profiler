@@ -70,25 +70,34 @@ export class ComponentTreeProvider {
    * Scans the ENTIRE React Native project, not just src folder
    */
   async getComponentTree(): Promise<ComponentTreeNode[]> {
-    if (!this.workspaceRoot) {
-      return [];
+    try {
+      if (!this.workspaceRoot) {
+        console.warn("No workspace root found");
+        return [];
+      }
+
+      // Find React Native project (supports monorepos)
+      const rnProjectPath = await this.findReactNativeProject();
+      if (!rnProjectPath) {
+        // Fallback to workspace root
+        console.warn("No React Native project found, scanning workspace root");
+        return this.scanDirectory(this.workspaceRoot);
+      }
+
+      // Calculate relative path from workspace root for proper path display
+      const relativeBase = path.relative(this.workspaceRoot, rnProjectPath);
+
+      // Scan the ENTIRE React Native project directory, not just src
+      const initialRelativePath = relativeBase ? relativeBase : "";
+
+      // Scan with relative path prefix for monorepo support
+      const tree = await this.scanDirectory(rnProjectPath, initialRelativePath);
+      console.log(`Component tree loaded: ${tree.length} top-level items`);
+      return tree;
+    } catch (error: any) {
+      console.error("Error in getComponentTree:", error);
+      throw error; // Re-throw so caller can handle it
     }
-
-    // Find React Native project (supports monorepos)
-    const rnProjectPath = await this.findReactNativeProject();
-    if (!rnProjectPath) {
-      // Fallback to workspace root
-      return this.scanDirectory(rnProjectPath || this.workspaceRoot);
-    }
-
-    // Calculate relative path from workspace root for proper path display
-    const relativeBase = path.relative(this.workspaceRoot, rnProjectPath);
-
-    // Scan the ENTIRE React Native project directory, not just src
-    const initialRelativePath = relativeBase ? relativeBase : "";
-
-    // Scan with relative path prefix for monorepo support
-    return this.scanDirectory(rnProjectPath, initialRelativePath);
   }
 
   private async scanDirectory(
@@ -98,58 +107,80 @@ export class ComponentTreeProvider {
     const nodes: ComponentTreeNode[] = [];
 
     try {
+      // Check if directory exists
+      if (!fs.existsSync(dirPath)) {
+        console.warn(`Directory does not exist: ${dirPath}`);
+        return [];
+      }
+
       const entries = fs.readdirSync(dirPath, { withFileTypes: true });
 
       for (const entry of entries) {
-        // Skip node_modules, .git, and other common ignore patterns
-        const dirName = entry.name.toLowerCase();
-        if (
-          entry.name.startsWith(".") ||
-          entry.name === "node_modules" ||
-          dirName === "dist" ||
-          dirName === "build" ||
-          dirName === ".expo" ||
-          dirName === ".next" ||
-          dirName === "coverage"
-        ) {
+        try {
+          // Skip node_modules, .git, and other common ignore patterns
+          const dirName = entry.name.toLowerCase();
+          if (
+            entry.name.startsWith(".") ||
+            entry.name === "node_modules" ||
+            dirName === "dist" ||
+            dirName === "build" ||
+            dirName === ".expo" ||
+            dirName === ".next" ||
+            dirName === "coverage"
+          ) {
+            continue;
+          }
+
+          const fullPath = path.join(dirPath, entry.name);
+          const relPath = relativePath
+            ? `${relativePath}/${entry.name}`
+            : entry.name;
+
+          if (entry.isDirectory()) {
+            try {
+              const children = await this.scanDirectory(fullPath, relPath);
+              if (children.length > 0) {
+                nodes.push({
+                  name: entry.name,
+                  path: relPath,
+                  type: "file",
+                  children: children,
+                });
+              }
+            } catch (error) {
+              // Skip directories that can't be scanned (permissions, etc.)
+              console.warn(`Error scanning directory ${fullPath}:`, error);
+            }
+          } else if (entry.isFile() && this.isComponentFile(entry.name)) {
+            try {
+              // Use AST parsing to extract ONLY actual React components
+              const components = await this.extractComponentsWithAST(
+                fullPath,
+                entry.name
+              );
+
+              if (components.length > 0) {
+                nodes.push({
+                  name: entry.name,
+                  path: relPath,
+                  type: "component",
+                  children: components.map((comp) => ({
+                    name: comp,
+                    path: `${relPath}::${comp}`,
+                    type: "component",
+                  })),
+                });
+              }
+              // Don't include files with no components - they're not components!
+            } catch (error) {
+              // Skip files that can't be parsed (syntax errors, etc.)
+              console.warn(`Error parsing component file ${fullPath}:`, error);
+            }
+          }
+        } catch (error) {
+          // Skip individual entries that cause errors
+          console.warn(`Error processing entry ${entry.name}:`, error);
           continue;
-        }
-
-        const fullPath = path.join(dirPath, entry.name);
-        const relPath = relativePath
-          ? `${relativePath}/${entry.name}`
-          : entry.name;
-
-        if (entry.isDirectory()) {
-          const children = await this.scanDirectory(fullPath, relPath);
-          if (children.length > 0) {
-            nodes.push({
-              name: entry.name,
-              path: relPath,
-              type: "file",
-              children: children,
-            });
-          }
-        } else if (entry.isFile() && this.isComponentFile(entry.name)) {
-          // Use AST parsing to extract ONLY actual React components
-          const components = await this.extractComponentsWithAST(
-            fullPath,
-            entry.name
-          );
-
-          if (components.length > 0) {
-            nodes.push({
-              name: entry.name,
-              path: relPath,
-              type: "component",
-              children: components.map((comp) => ({
-                name: comp,
-                path: `${relPath}::${comp}`,
-                type: "component",
-              })),
-            });
-          }
-          // Don't include files with no components - they're not components!
         }
       }
     } catch (error) {

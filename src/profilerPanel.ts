@@ -58,18 +58,21 @@ export class ProfilerPanel {
     );
   }
 
+  private static currentPanel: ProfilerPanel | undefined;
+
   public static createOrShow(
     extensionUri: vscode.Uri,
     componentTreeProvider: ComponentTreeProvider
-  ) {
+  ): ProfilerPanel {
     const column = vscode.window.activeTextEditor
       ? vscode.window.activeTextEditor.viewColumn
       : undefined;
 
-    // If we already have a panel, show it
-    const existingPanel = vscode.window.activeTextEditor?.viewColumn
-      ? vscode.window.activeTextEditor.viewColumn
-      : undefined;
+    // If we already have a panel that's still alive, show it
+    if (ProfilerPanel.currentPanel) {
+      ProfilerPanel.currentPanel.panel.reveal(column);
+      return ProfilerPanel.currentPanel;
+    }
 
     // Otherwise, create a new panel
     const panel = vscode.window.createWebviewPanel(
@@ -86,7 +89,8 @@ export class ProfilerPanel {
       }
     );
 
-    return new ProfilerPanel(panel, extensionUri, componentTreeProvider);
+    ProfilerPanel.currentPanel = new ProfilerPanel(panel, extensionUri, componentTreeProvider);
+    return ProfilerPanel.currentPanel;
   }
 
   public reveal() {
@@ -114,7 +118,13 @@ export class ProfilerPanel {
   }
 
   public sendMessage(message: WebViewMessage) {
-    this.panel.webview.postMessage(message);
+    // Check if panel is still alive before sending
+    try {
+      this.panel.webview.postMessage(message);
+    } catch (error: any) {
+      // Panel might be disposed, ignore the error
+      console.warn("Failed to send message to webview (panel may be disposed):", error);
+    }
   }
 
   public async analyzeLogs(logs: ProfileLog[]) {
@@ -148,11 +158,22 @@ export class ProfilerPanel {
     switch (message.type) {
       case "ready":
         // Send component tree when webview is ready
-        const tree = await this.componentTreeProvider.getComponentTree();
-        this.sendMessage({
-          type: "componentTree",
-          tree: tree,
-        });
+        try {
+          const tree = await this.componentTreeProvider.getComponentTree();
+          this.sendMessage({
+            type: "componentTree",
+            tree: tree,
+          });
+        } catch (error: any) {
+          console.error("Error loading component tree:", error);
+          this.sendMessage({
+            type: "componentTree",
+            tree: [],
+          });
+          vscode.window.showErrorMessage(
+            `Failed to load component tree: ${error.message || error}`
+          );
+        }
         break;
 
       case "selectComponents":
@@ -1526,13 +1547,16 @@ Device Version: \${log.deviceInfo?.version || 'unknown'}
 
   private dispose() {
     // Clean up our resources
-    this.panel.dispose();
-
     while (this.disposables.length) {
       const x = this.disposables.pop();
       if (x) {
         x.dispose();
       }
+    }
+    
+    // Clear the static reference
+    if (ProfilerPanel.currentPanel === this) {
+      ProfilerPanel.currentPanel = undefined;
     }
   }
 }

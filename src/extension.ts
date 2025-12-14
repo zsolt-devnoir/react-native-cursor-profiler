@@ -36,14 +36,11 @@ export async function activate(context: vscode.ExtensionContext) {
     const showPanelCommand = vscode.commands.registerCommand(
       "rnProfilerAI.showProfilerPanel",
       () => {
-        if (!profilerPanel) {
-          profilerPanel = ProfilerPanel.createOrShow(
-            context.extensionUri,
-            componentTreeProvider!
-          );
-        } else {
-          profilerPanel.reveal();
-        }
+        // Always use createOrShow - it handles checking for existing panels
+        profilerPanel = ProfilerPanel.createOrShow(
+          context.extensionUri,
+          componentTreeProvider!
+        );
       }
     );
 
