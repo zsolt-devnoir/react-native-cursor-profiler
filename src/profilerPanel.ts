@@ -1141,50 +1141,54 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
     </div>
 
     <script>
-        (function() {
-            try {
-                const vscode = acquireVsCodeApi();
-                console.log('[Webview] VS Code API acquired');
-                
-                let selectedComponents = new Set();
-                let isRecording = false;
-                let logs = [];
-                let treeData = [];
-                let expandedNodes = new Set();
-                let collapsedSections = new Set(['logs', 'analysis']); // Start with logs and analysis collapsed
+        try {
+            const vscode = acquireVsCodeApi();
+            console.log('[Webview] VS Code API acquired');
+            
+            let selectedComponents = new Set();
+            let isRecording = false;
+            let logs = [];
+            let treeData = [];
+            let expandedNodes = new Set();
+            let collapsedSections = new Set(['logs', 'analysis']); // Start with logs and analysis collapsed
 
-                // Send ready message immediately
-                function sendReady() {
-                    try {
-                        console.log('[Webview] Sending ready message');
-                        vscode.postMessage({ type: 'ready' });
-                        console.log('[Webview] Ready message sent');
-                    } catch (error) {
-                        console.error('[Webview] Error sending ready message:', error);
-                    }
+            // Send ready message - try multiple times to ensure it gets through
+            function sendReady() {
+                try {
+                    console.log('[Webview] Sending ready message');
+                    vscode.postMessage({ type: 'ready' });
+                    console.log('[Webview] Ready message sent successfully');
+                } catch (error) {
+                    console.error('[Webview] Error sending ready message:', error);
                 }
+            }
 
-                // Initialize
-                window.addEventListener('load', () => {
-                    console.log('[Webview] Window loaded');
-                    sendReady();
+            // Send ready immediately
+            sendReady();
+
+            // Also send on window load
+            window.addEventListener('load', () => {
+                console.log('[Webview] Window loaded event fired');
+                sendReady();
+                if (typeof updateStatus === 'function') {
                     updateStatus(false);
-                    updateSectionStates();
-                });
-                
-                // Also try sending ready immediately if DOM is already loaded
-                if (document.readyState === 'complete' || document.readyState === 'interactive') {
-                    console.log('[Webview] DOM already loaded, sending ready immediately');
-                    sendReady();
-                    updateStatus(false);
-                    updateSectionStates();
-                } else {
-                    // Send after a short delay to ensure everything is ready
-                    setTimeout(() => {
-                        console.log('[Webview] Sending ready after timeout');
-                        sendReady();
-                    }, 200);
                 }
+                if (typeof updateSectionStates === 'function') {
+                    updateSectionStates();
+                }
+            });
+            
+            // Send ready if DOM is already loaded
+            if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                console.log('[Webview] DOM already loaded, sending ready');
+                sendReady();
+            } else {
+                // Send after a short delay as fallback
+                setTimeout(() => {
+                    console.log('[Webview] Sending ready after timeout (fallback)');
+                    sendReady();
+                }, 300);
+            }
 
         // Section collapse/expand
         function toggleSection(sectionId) {
@@ -1628,10 +1632,17 @@ Device Version: \${log.deviceInfo?.version || 'unknown'}
                 vscode.postMessage({ type: 'requestLogs' });
             }
         }, 1000);
-            } catch (error) {
-                console.error('[Webview] Fatal error in script:', error);
+        } catch (error) {
+            console.error('[Webview] Fatal error in script initialization:', error);
+            // Try to send ready even if there's an error, in case it's a non-critical error
+            try {
+                if (typeof vscode !== 'undefined') {
+                    vscode.postMessage({ type: 'ready' });
+                }
+            } catch (e) {
+                console.error('[Webview] Could not send ready message after error:', e);
             }
-        })();
+        }
     </script>
 </body>
 </html>`;
