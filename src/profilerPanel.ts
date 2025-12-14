@@ -1141,9 +1141,26 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
     </div>
 
     <script>
+        // Immediately try to send ready - don't wait for anything
+        (function() {
+            try {
+                const vscode = acquireVsCodeApi();
+                console.log('[Webview] VS Code API acquired');
+                
+                // Send ready IMMEDIATELY - this is the most important part
+                vscode.postMessage({ type: 'ready' });
+                console.log('[Webview] Ready message sent immediately');
+                
+                // Make vscode available globally for other code
+                window.vscode = vscode;
+            } catch (error) {
+                console.error('[Webview] CRITICAL ERROR acquiring VS Code API:', error);
+            }
+        })();
+        
         try {
-            const vscode = acquireVsCodeApi();
-            console.log('[Webview] VS Code API acquired');
+            const vscode = window.vscode || acquireVsCodeApi();
+            console.log('[Webview] VS Code API available for main script');
             
             let selectedComponents = new Set();
             let isRecording = false;
@@ -1155,16 +1172,17 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
             // Send ready message - try multiple times to ensure it gets through
             function sendReady() {
                 try {
+                    const vscodeApi = window.vscode || acquireVsCodeApi();
                     console.log('[Webview] Sending ready message');
-                    vscode.postMessage({ type: 'ready' });
+                    vscodeApi.postMessage({ type: 'ready' });
                     console.log('[Webview] Ready message sent successfully');
                 } catch (error) {
                     console.error('[Webview] Error sending ready message:', error);
                 }
             }
 
-            // Send ready immediately
-            sendReady();
+            // Send ready again after a brief moment
+            setTimeout(sendReady, 50);
 
             // Also send on window load
             window.addEventListener('load', () => {
@@ -1216,44 +1234,78 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
             });
         }
 
-        // Button handlers
-        document.getElementById('wrapBtn').addEventListener('click', () => {
-            const selected = Array.from(selectedComponents);
-            if (selected.length === 0) {
-                alert('Please select components from the tree first');
-                return;
+        // Button handlers - wrap in try-catch and check for element existence
+        function setupButtonHandlers() {
+            try {
+                const wrapBtn = document.getElementById('wrapBtn');
+                if (wrapBtn) {
+                    wrapBtn.addEventListener('click', () => {
+                        const selected = Array.from(selectedComponents);
+                        if (selected.length === 0) {
+                            alert('Please select components from the tree first');
+                            return;
+                        }
+                        vscode.postMessage({ type: 'wrapComponents', components: selected });
+                    });
+                }
+
+                const clearAllBtn = document.getElementById('clearAllBtn');
+                if (clearAllBtn) {
+                    clearAllBtn.addEventListener('click', () => {
+                        if (selectedComponents.size === 0) {
+                            return;
+                        }
+                        if (confirm('Clear all ' + selectedComponents.size + ' selected component(s)?')) {
+                            clearAllSelections();
+                        }
+                    });
+                }
+
+                const startBtn = document.getElementById('startBtn');
+                if (startBtn) {
+                    startBtn.addEventListener('click', () => {
+                        vscode.postMessage({ type: 'startRecording' });
+                    });
+                }
+
+                const stopBtn = document.getElementById('stopBtn');
+                if (stopBtn) {
+                    stopBtn.addEventListener('click', () => {
+                        vscode.postMessage({ type: 'stopRecording' });
+                    });
+                }
+
+                const analyzeBtn = document.getElementById('analyzeBtn');
+                if (analyzeBtn) {
+                    analyzeBtn.addEventListener('click', () => {
+                        vscode.postMessage({ type: 'analyzeLogs' });
+                    });
+                }
+
+                const copyLogsBtn = document.getElementById('copyLogsBtn');
+                if (copyLogsBtn) {
+                    copyLogsBtn.addEventListener('click', () => {
+                        copyLogsToClipboard();
+                    });
+                }
+
+                const saveLogsBtn = document.getElementById('saveLogsBtn');
+                if (saveLogsBtn) {
+                    saveLogsBtn.addEventListener('click', () => {
+                        saveLogsToFile();
+                    });
+                }
+            } catch (error) {
+                console.error('[Webview] Error setting up button handlers:', error);
             }
-            vscode.postMessage({ type: 'wrapComponents', components: selected });
-        });
-
-        document.getElementById('clearAllBtn').addEventListener('click', () => {
-            if (selectedComponents.size === 0) {
-                return;
-            }
-            if (confirm('Clear all ' + selectedComponents.size + ' selected component(s)?')) {
-                clearAllSelections();
-            }
-        });
-
-        document.getElementById('startBtn').addEventListener('click', () => {
-            vscode.postMessage({ type: 'startRecording' });
-        });
-
-        document.getElementById('stopBtn').addEventListener('click', () => {
-            vscode.postMessage({ type: 'stopRecording' });
-        });
-
-        document.getElementById('analyzeBtn').addEventListener('click', () => {
-            vscode.postMessage({ type: 'analyzeLogs' });
-        });
-
-        document.getElementById('copyLogsBtn').addEventListener('click', () => {
-            copyLogsToClipboard();
-        });
-
-        document.getElementById('saveLogsBtn').addEventListener('click', () => {
-            saveLogsToFile();
-        });
+        }
+        
+        // Setup buttons when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', setupButtonHandlers);
+        } else {
+            setupButtonHandlers();
+        }
 
         // Handle messages from extension
         window.addEventListener('message', event => {
@@ -1294,8 +1346,19 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
             }
         });
 
-        // Initialize button states
-        updateLogsCount();
+        // Initialize button states - only after DOM is ready
+        function initializeButtonStates() {
+            try {
+                if (typeof updateLogsCount === 'function') {
+                    updateLogsCount();
+                }
+            } catch (error) {
+                console.error('[Webview] Error initializing button states:', error);
+            }
+        }
+        
+        // Initialize after a short delay to ensure DOM is ready
+        setTimeout(initializeButtonStates, 100);
 
         function updateStatus(recording) {
             const indicator = document.getElementById('statusIndicator');
