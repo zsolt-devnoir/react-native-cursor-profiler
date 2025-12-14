@@ -132,7 +132,10 @@ export class ComponentTreeProvider {
           }
         } else if (entry.isFile() && this.isComponentFile(entry.name)) {
           // Use AST parsing to extract ONLY actual React components
-          const components = await this.extractComponentsWithAST(fullPath);
+          const components = await this.extractComponentsWithAST(
+            fullPath,
+            entry.name
+          );
 
           if (components.length > 0) {
             nodes.push({
@@ -169,8 +172,13 @@ export class ComponentTreeProvider {
   /**
    * Extracts component names from a file using AST parsing
    * Only returns actual React components (functions that return JSX or are React components)
+   * @param filePath - Full path to the file
+   * @param fileName - Name of the file (for generating names for anonymous exports)
    */
-  private async extractComponentsWithAST(filePath: string): Promise<string[]> {
+  private async extractComponentsWithAST(
+    filePath: string,
+    fileName: string
+  ): Promise<string[]> {
     try {
       const content = fs.readFileSync(filePath, "utf8");
       const components: Set<string> = new Set();
@@ -206,7 +214,26 @@ export class ComponentTreeProvider {
             t.isArrowFunctionExpression(declaration) ||
             t.isFunctionExpression(declaration)
           ) {
-            // Anonymous default export - skip (can't profile without name)
+            // Anonymous default export - check if it's a component and use filename as name
+            if (self.isComponentExpression(declaration)) {
+              // Generate component name from filename
+              // e.g., _layout.tsx -> Layout, index.tsx -> Index
+              const pathModule = require("path");
+              const baseName = pathModule.basename(
+                fileName,
+                pathModule.extname(fileName)
+              );
+              let componentName = baseName
+                .replace(/^_+/, "") // Remove leading underscores
+                .replace(/^[a-z]/, (char: string) => char.toUpperCase()); // Capitalize first letter
+
+              // If name is empty or just underscores, use "Component"
+              if (!componentName || componentName === "") {
+                componentName = "Component";
+              }
+
+              components.add(componentName);
+            }
           }
         },
 
@@ -267,33 +294,65 @@ export class ComponentTreeProvider {
       return false;
     }
 
-    // Check if function body contains JSX or returns JSX
+    // If it's an exported function with uppercase name, it's very likely a component
+    // Check if function body contains JSX or returns JSX, but be lenient
     if (func.body && t.isBlockStatement(func.body)) {
       // Look for JSX in return statements
       let hasJSX = false;
+      let hasReturn = false;
       const self = this;
-      traverse(
-        func.body,
-        {
-          ReturnStatement(path) {
-            if (self.hasJSXElement(path.node.argument)) {
+
+      try {
+        traverse(
+          func.body,
+          {
+            ReturnStatement(path) {
+              hasReturn = true;
+              if (self.hasJSXElement(path.node.argument)) {
+                hasJSX = true;
+                path.stop();
+              }
+            },
+            JSXElement() {
               hasJSX = true;
-              path.stop();
-            }
+            },
+            JSXFragment() {
+              hasJSX = true;
+            },
+            // Also check for JSX in variable assignments (e.g., const element = <div />)
+            VariableDeclarator(path) {
+              if (self.hasJSXElement(path.node.init)) {
+                hasJSX = true;
+              }
+            },
           },
-          JSXElement() {
-            hasJSX = true;
-          },
-          JSXFragment() {
-            hasJSX = true;
-          },
-        },
-        undefined,
-        func.body
-      );
-      return hasJSX;
+          undefined,
+          func.body
+        );
+      } catch (error) {
+        // If traversal fails, assume it's a component if name starts with uppercase
+        console.warn(`Error traversing function body for ${name}:`, error);
+        return true; // Be lenient - if it starts with uppercase, assume component
+      }
+
+      // If we found JSX, definitely a component
+      if (hasJSX) {
+        return true;
+      }
+
+      // If there's a return statement but we couldn't detect JSX,
+      // still consider it a component (might be returning a component reference)
+      // This handles cases like: return <Component /> or return Component
+      if (hasReturn) {
+        return true;
+      }
+
+      // If no return but has body, might still be a component (early returns, etc.)
+      // Be lenient for uppercase names
+      return true;
     }
 
+    // No body or empty body - not a component
     return false;
   }
 
@@ -406,15 +465,106 @@ export class ComponentTreeProvider {
   }
 
   /**
+   * Checks if a function/arrow function expression is a React component
+   */
+  private isComponentExpression(
+    node: t.ArrowFunctionExpression | t.FunctionExpression
+  ): boolean {
+    // Arrow function with direct JSX return
+    if (t.isArrowFunctionExpression(node)) {
+      if (t.isJSXElement(node.body) || t.isJSXFragment(node.body)) {
+        return true;
+      }
+      // Arrow function with block that returns JSX
+      if (t.isBlockStatement(node.body)) {
+        let hasJSX = false;
+        const self = this;
+        traverse(
+          node.body,
+          {
+            ReturnStatement(path) {
+              if (self.hasJSXElement(path.node.argument)) {
+                hasJSX = true;
+                path.stop();
+              }
+            },
+            JSXElement() {
+              hasJSX = true;
+            },
+            JSXFragment() {
+              hasJSX = true;
+            },
+          },
+          undefined,
+          node.body
+        );
+        return hasJSX;
+      }
+    }
+
+    // Function expression with block that returns JSX
+    if (t.isFunctionExpression(node) && t.isBlockStatement(node.body)) {
+      let hasJSX = false;
+      const self = this;
+      traverse(
+        node.body,
+        {
+          ReturnStatement(path) {
+            if (self.hasJSXElement(path.node.argument)) {
+              hasJSX = true;
+              path.stop();
+            }
+          },
+          JSXElement() {
+            hasJSX = true;
+          },
+          JSXFragment() {
+            hasJSX = true;
+          },
+        },
+        undefined,
+        node.body
+      );
+      return hasJSX;
+    }
+
+    return false;
+  }
+
+  /**
    * Checks if a node contains JSX
    */
   private hasJSXElement(node: t.Node | null | undefined): boolean {
     if (!node) return false;
+
+    // Direct JSX elements
     if (t.isJSXElement(node) || t.isJSXFragment(node)) return true;
+
+    // JSX in nested structures
+    if (t.isParenthesizedExpression(node)) {
+      return this.hasJSXElement(node.expression);
+    }
+
+    // Call expressions could be React.createElement (JSX transform)
     if (t.isCallExpression(node)) {
-      // Could be React.createElement or JSX transform
+      // Check if it's React.createElement or similar
+      if (t.isMemberExpression(node.callee)) {
+        if (
+          t.isIdentifier(node.callee.object) &&
+          node.callee.object.name === "React" &&
+          t.isIdentifier(node.callee.property) &&
+          node.callee.property.name === "createElement"
+        ) {
+          return true;
+        }
+      }
+      // Could be JSX transform - be lenient
       return true;
     }
+
+    // Identifier could be a component reference (e.g., return <Component />)
+    // We'll let the caller decide based on context
+
     return false;
   }
 
