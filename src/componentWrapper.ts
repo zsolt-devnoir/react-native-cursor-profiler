@@ -14,6 +14,65 @@ export class ComponentWrapper {
   private withProfilerImportPath: string = "";
 
   /**
+   * Finds the withProfiler file in the React Native project
+   */
+  private findWithProfilerFile(
+    workspaceRoot: string,
+    componentFilePath: string
+  ): string | null {
+    // Search for withProfiler file in common locations
+    const searchPaths = [
+      path.join(workspaceRoot, "src", "utils", "withProfiler.tsx"),
+      path.join(workspaceRoot, "src", "utils", "withProfiler.ts"),
+      path.join(workspaceRoot, "src", "utils", "withProfiler.jsx"),
+      path.join(workspaceRoot, "src", "utils", "withProfiler.js"),
+      path.join(workspaceRoot, "utils", "withProfiler.tsx"),
+      path.join(workspaceRoot, "utils", "withProfiler.ts"),
+      path.join(workspaceRoot, "utils", "withProfiler.jsx"),
+      path.join(workspaceRoot, "utils", "withProfiler.js"),
+    ];
+
+    // Also search relative to component file location
+    const componentDir = path.dirname(componentFilePath);
+    const componentDirFull = path.join(workspaceRoot, componentDir);
+
+    // Search in parent directories for utils/withProfiler
+    let currentDir = componentDirFull;
+    for (let i = 0; i < 10; i++) {
+      // Limit depth to prevent infinite loops
+      const utilsPath = path.join(currentDir, "utils", "withProfiler.tsx");
+      if (fs.existsSync(utilsPath)) {
+        return utilsPath;
+      }
+      const utilsPathTs = path.join(currentDir, "utils", "withProfiler.ts");
+      if (fs.existsSync(utilsPathTs)) {
+        return utilsPathTs;
+      }
+      const utilsPathJsx = path.join(currentDir, "utils", "withProfiler.jsx");
+      if (fs.existsSync(utilsPathJsx)) {
+        return utilsPathJsx;
+      }
+      const utilsPathJs = path.join(currentDir, "utils", "withProfiler.js");
+      if (fs.existsSync(utilsPathJs)) {
+        return utilsPathJs;
+      }
+
+      const parent = path.dirname(currentDir);
+      if (parent === currentDir) break; // Reached root
+      currentDir = parent;
+    }
+
+    // Try the predefined search paths
+    for (const searchPath of searchPaths) {
+      if (fs.existsSync(searchPath)) {
+        return searchPath;
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Wraps a component in its source file using AST transformation
    */
   async wrapComponent(
@@ -31,29 +90,29 @@ export class ComponentWrapper {
         return false;
       }
 
-      // Calculate relative path to withProfiler
-      // File path is relative to workspace root, e.g., "apps/mobile/src/casino/components/casino/QuickFilters.tsx"
-      // We need to find where "src" is and calculate relative path to "src/utils/withProfiler"
-      const fileDir = path.dirname(filePath);
-
-      // Split path and find 'src' directory
-      const pathParts = fileDir.split(path.sep);
-      const srcIndex = pathParts.indexOf("src");
-
-      if (srcIndex !== -1) {
-        // Get path after 'src': e.g., ["casino", "components", "casino"]
-        const pathAfterSrc = pathParts.slice(srcIndex + 1);
-        // Calculate how many levels up we need to go
-        const upLevels = pathAfterSrc.length;
-        // Build relative path: "../../../utils/withProfiler"
-        this.withProfilerImportPath =
-          "../".repeat(upLevels) + "utils/withProfiler";
-      } else {
-        // Fallback: try to calculate relative path using the helper
-        this.withProfilerImportPath = this.calculateRelativePath(
-          fileDir,
-          "src/utils/withProfiler"
+      // Find the withProfiler file dynamically
+      const withProfilerPath = this.findWithProfilerFile(
+        workspaceRoot,
+        filePath
+      );
+      if (!withProfilerPath) {
+        console.error(
+          `Could not find withProfiler file. Please ensure withProfiler.tsx exists in your project.`
         );
+        return false;
+      }
+
+      // Calculate relative path from component file to withProfiler file
+      const componentFileDir = path.dirname(fullPath);
+      const relativePath = path.relative(componentFileDir, withProfilerPath);
+      // Remove file extension and normalize path separators
+      this.withProfilerImportPath = relativePath
+        .replace(/\.(tsx|ts|jsx|js)$/, "")
+        .replace(/\\/g, "/");
+
+      // Ensure path starts with ./ or ../
+      if (!this.withProfilerImportPath.startsWith(".")) {
+        this.withProfilerImportPath = "./" + this.withProfilerImportPath;
       }
 
       const originalContent = fs.readFileSync(fullPath, "utf8");
@@ -308,14 +367,18 @@ export class ComponentWrapper {
 
       // Generate code from AST
       if (wrappedCount > 0) {
+        // Use options that preserve formatting as much as possible
         const result = generate(
           ast,
           {
-            retainLines: false, // Let generator format the code
+            retainLines: true, // Preserve original line numbers
             compact: false,
             comments: true, // Preserve comments
+            concise: false,
+            minified: false,
             jsescOption: {
               quotes: "single",
+              wrap: true,
             },
           },
           code
