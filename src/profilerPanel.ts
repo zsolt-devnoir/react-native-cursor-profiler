@@ -3,7 +3,7 @@ import * as path from "path";
 import * as fs from "fs";
 import { ProfilerServer } from "./profilerServer";
 import { ComponentTreeProvider } from "./componentTreeProvider";
-import { ProfileLog, WebViewMessage } from "./types";
+import { ProfileLog, WebViewMessage, ComponentTreeNode } from "./types";
 import { AIAnalyzer } from "./aiAnalyzer";
 import { ComponentWrapper } from "./componentWrapper";
 
@@ -158,20 +158,34 @@ export class ProfilerPanel {
     switch (message.type) {
       case "ready":
         // Send component tree when webview is ready
+        // Use a timeout to prevent infinite loading
+        const timeoutPromise = new Promise<ComponentTreeNode[]>((_, reject) => {
+          setTimeout(() => reject(new Error("Component tree loading timeout after 30 seconds")), 30000);
+        });
+        
         try {
-          const tree = await this.componentTreeProvider.getComponentTree();
+          console.log("Starting component tree loading...");
+          const tree = await Promise.race([
+            this.componentTreeProvider.getComponentTree(),
+            timeoutPromise
+          ]);
+          
+          console.log(`Component tree loaded successfully: ${tree.length} items`);
           this.sendMessage({
             type: "componentTree",
             tree: tree,
           });
         } catch (error: any) {
           console.error("Error loading component tree:", error);
+          // Always send a response, even if empty, so UI doesn't hang
           this.sendMessage({
             type: "componentTree",
             tree: [],
           });
+          
+          const errorMessage = error.message || String(error);
           vscode.window.showErrorMessage(
-            `Failed to load component tree: ${error.message || error}`
+            `Failed to load component tree: ${errorMessage}. Check Output panel for details.`
           );
         }
         break;

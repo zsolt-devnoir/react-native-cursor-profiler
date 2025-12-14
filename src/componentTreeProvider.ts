@@ -12,6 +12,8 @@ import { ComponentTreeNode } from "./types";
 export class ComponentTreeProvider {
   private context: vscode.ExtensionContext;
   private workspaceRoot: string | undefined;
+  private fileCount: number = 0;
+  private maxFilesToScan: number = 1000; // Limit total files to prevent infinite scanning
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
@@ -71,11 +73,15 @@ export class ComponentTreeProvider {
    */
   async getComponentTree(): Promise<ComponentTreeNode[]> {
     try {
+      // Reset file counter for new scan
+      this.fileCount = 0;
+      
       if (!this.workspaceRoot) {
         console.warn("No workspace root found");
         return [];
       }
 
+      console.log("Finding React Native project...");
       // Find React Native project (supports monorepos)
       const rnProjectPath = await this.findReactNativeProject();
       if (!rnProjectPath) {
@@ -84,6 +90,7 @@ export class ComponentTreeProvider {
         return this.scanDirectory(this.workspaceRoot);
       }
 
+      console.log(`Scanning React Native project at: ${rnProjectPath}`);
       // Calculate relative path from workspace root for proper path display
       const relativeBase = path.relative(this.workspaceRoot, rnProjectPath);
 
@@ -92,7 +99,7 @@ export class ComponentTreeProvider {
 
       // Scan with relative path prefix for monorepo support
       const tree = await this.scanDirectory(rnProjectPath, initialRelativePath);
-      console.log(`Component tree loaded: ${tree.length} top-level items`);
+      console.log(`Component tree loaded: ${tree.length} top-level items, ${this.fileCount} files scanned`);
       return tree;
     } catch (error: any) {
       console.error("Error in getComponentTree:", error);
@@ -152,6 +159,11 @@ export class ComponentTreeProvider {
               console.warn(`Error scanning directory ${fullPath}:`, error);
             }
           } else if (entry.isFile() && this.isComponentFile(entry.name)) {
+            this.fileCount++; // Increment file counter
+            if (this.fileCount > this.maxFilesToScan) {
+              continue; // Skip remaining files
+            }
+            
             try {
               // Use AST parsing to extract ONLY actual React components
               const components = await this.extractComponentsWithAST(
@@ -211,14 +223,25 @@ export class ComponentTreeProvider {
     fileName: string
   ): Promise<string[]> {
     try {
+      // Limit file size to prevent parsing huge files that could hang
+      const stats = fs.statSync(filePath);
+      const maxFileSize = 500 * 1024; // 500KB limit
+      if (stats.size > maxFileSize) {
+        console.warn(`Skipping large file ${filePath} (${stats.size} bytes)`);
+        return [];
+      }
+
       const content = fs.readFileSync(filePath, "utf8");
       const components: Set<string> = new Set();
 
       // Parse with TypeScript and JSX support
+      // Add timeout protection by limiting parsing options
       const ast = parse(content, {
         sourceType: "module",
         plugins: ["jsx", "typescript", "decorators-legacy", "classProperties"],
         errorRecovery: true,
+        // Limit tokens to prevent hanging on malformed files
+        tokens: false, // Don't store tokens to save memory
       });
 
       const self = this; // Capture this for use in traverse callbacks
