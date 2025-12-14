@@ -285,10 +285,13 @@ export class ComponentWrapper {
 
           let targetComponent: t.Identifier | null = null;
           let componentIdentifier: string = componentName;
+          let needsFunctionExtraction = false;
 
           // Case 1: export default function ComponentName() {}
           if (t.isFunctionDeclaration(declaration) && declaration.id) {
             if (declaration.id.name === componentName) {
+              // For function declarations, we need to extract the function and create a new export
+              needsFunctionExtraction = true;
               targetComponent = declaration.id;
               componentIdentifier = declaration.id.name;
             }
@@ -302,8 +305,15 @@ export class ComponentWrapper {
                 t.isIdentifier(firstDeclarator.id) &&
                 firstDeclarator.id.name === componentName
               ) {
-                targetComponent = firstDeclarator.id;
-                componentIdentifier = firstDeclarator.id.name;
+                // For const declarations, we can wrap the initializer directly
+                if (firstDeclarator.init) {
+                  firstDeclarator.init = t.callExpression(
+                    t.identifier("withProfiler"),
+                    [firstDeclarator.init, t.stringLiteral(componentName)]
+                  );
+                  wrappedCount++;
+                }
+                return; // Already handled
               }
             }
           }
@@ -317,21 +327,71 @@ export class ComponentWrapper {
           // Case 4: export default class ComponentName extends ...
           else if (t.isClassDeclaration(declaration) && declaration.id) {
             if (declaration.id.name === componentName) {
+              // For class declarations, we need to extract the class and create a new export
+              needsFunctionExtraction = true;
               targetComponent = declaration.id;
               componentIdentifier = declaration.id.name;
             }
           }
 
           if (targetComponent) {
-            // Wrap the declaration with withProfiler
-            const wrappedCall = t.callExpression(t.identifier("withProfiler"), [
-              targetComponent,
-              t.stringLiteral(componentIdentifier),
-            ]);
+            if (needsFunctionExtraction) {
+              // For function/class declarations, we need to:
+              // 1. Extract the function/class (remove export)
+              // 2. Add a new export default withProfiler(ComponentName, 'ComponentName')
+              
+              const programPath = path.findParent((p) => t.isProgram(p.node));
+              if (!programPath || !t.isProgram(programPath.node)) {
+                return;
+              }
 
-            // Replace the export with wrapped version
-            path.node.declaration = wrappedCall;
-            wrappedCount++;
+              // Create a function/class declaration without export
+              let extractedDecl: t.Statement;
+              if (t.isFunctionDeclaration(declaration)) {
+                extractedDecl = t.functionDeclaration(
+                  declaration.id!,
+                  declaration.params,
+                  declaration.body,
+                  declaration.generator,
+                  declaration.async
+                );
+              } else if (t.isClassDeclaration(declaration)) {
+                extractedDecl = t.classDeclaration(
+                  declaration.id!,
+                  declaration.superClass,
+                  declaration.body,
+                  declaration.decorators
+                );
+              } else {
+                return; // Should not happen
+              }
+
+              // Create the wrapped export
+              const wrappedCall = t.callExpression(
+                t.identifier("withProfiler"),
+                [targetComponent, t.stringLiteral(componentIdentifier)]
+              );
+
+              const wrappedExport = t.exportDefaultDeclaration(wrappedCall);
+
+              // Replace the export with the extracted declaration, then add wrapped export after
+              const currentIndex = programPath.node.body.indexOf(path.node);
+              path.replaceWith(extractedDecl);
+              // Insert wrapped export after the function/class
+              programPath.node.body.splice(currentIndex + 1, 0, wrappedExport);
+
+              wrappedCount++;
+            } else {
+              // For identifier references, we can wrap directly
+              const wrappedCall = t.callExpression(t.identifier("withProfiler"), [
+                targetComponent,
+                t.stringLiteral(componentIdentifier),
+              ]);
+
+              // Replace the export with wrapped version
+              path.node.declaration = wrappedCall;
+              wrappedCount++;
+            }
           }
         },
 
@@ -647,7 +707,7 @@ export class ComponentWrapper {
       console.warn("Failed to run VS Code format on save actions:", error);
     }
     */
-  }
+    }
 
     /**
      * Calculates relative path between two paths
