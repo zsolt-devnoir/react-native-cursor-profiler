@@ -1,13 +1,20 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { parse } from '@babel/parser';
+import traverse, { NodePath } from '@babel/traverse';
+import generate from '@babel/generator';
+import * as t from '@babel/types';
 
 /**
- * Automatically wraps React Native components with withProfiler HOC
+ * Automatically wraps React Native components with withProfiler HOC using AST transformation.
+ * This is more reliable than regex-based approaches as it understands code structure.
  */
 export class ComponentWrapper {
+    private withProfilerImportPath: string = '';
+
     /**
-     * Wraps a component in its source file
+     * Wraps a component in its source file using AST transformation
      */
     async wrapComponent(componentPath: string, componentName: string, workspaceRoot: string): Promise<boolean> {
         try {
@@ -20,120 +27,305 @@ export class ComponentWrapper {
                 return false;
             }
 
-            let content = fs.readFileSync(fullPath, 'utf8');
-            const originalContent = content;
+            // Calculate relative path to withProfiler
+            const fileDir = path.dirname(filePath);
+            this.withProfilerImportPath = this.calculateRelativePath(fileDir, 'src/utils/withProfiler');
 
-            // Check if already wrapped
-            if (content.includes(`withProfiler(${componentName})`) || 
-                content.includes(`withProfiler(${componentName},`) ||
-                content.includes(`withProfiler(`) && content.includes(componentName)) {
-                console.log(`Component ${componentName} appears to already be wrapped`);
-                return true;
-            }
-
-            // Try to wrap the component
-            content = this.wrapComponentInCode(content, componentName, filePath);
+            const originalContent = fs.readFileSync(fullPath, 'utf8');
+            
+            // Try to wrap using AST transformation
+            const transformedContent = await this.wrapComponentWithAST(originalContent, componentName, fullPath);
 
             // Only write if content changed
-            if (content !== originalContent) {
-                fs.writeFileSync(fullPath, content, 'utf8');
+            if (transformedContent && transformedContent !== originalContent) {
+                fs.writeFileSync(fullPath, transformedContent, 'utf8');
                 return true;
             }
 
             return false;
         } catch (error: any) {
             console.error(`Error wrapping component ${componentName}:`, error);
+            // If AST transformation fails, log the error but don't crash
             return false;
         }
     }
 
     /**
-     * Wraps a component in the code string
+     * Wraps a component using AST transformation
      */
-    private wrapComponentInCode(code: string, componentName: string, filePath: string): string {
-        // Check if already wrapped
-        if (code.includes(`withProfiler(${componentName}`)) {
-            return code; // Already wrapped
-        }
+    private async wrapComponentWithAST(
+        code: string,
+        componentName: string,
+        filePath: string
+    ): Promise<string | null> {
+        try {
+            // Determine if file is TypeScript/TSX or JavaScript/JSX
+            const isTypeScript = filePath.endsWith('.ts') || filePath.endsWith('.tsx');
+            const isJSX = filePath.endsWith('.tsx') || filePath.endsWith('.jsx');
 
-        // Check if withProfiler is already imported
-        const hasWithProfilerImport = code.includes('withProfiler') && 
-                                     (code.includes('import') && code.includes('from'));
+            // Parse code into AST
+            const ast = parse(code, {
+                sourceType: 'module',
+                plugins: [
+                    'jsx',
+                    'typescript',
+                    'decorators-legacy',
+                    'classProperties',
+                    'objectRestSpread',
+                    'asyncGenerators',
+                    'functionBind',
+                    'exportDefaultFrom',
+                    'exportNamespaceFrom',
+                    'dynamicImport',
+                    'nullishCoalescingOperator',
+                    'optionalChaining',
+                ],
+                allowImportExportEverywhere: true,
+                allowReturnOutsideFunction: true,
+            });
 
-        let newCode = code;
-        let modified = false;
+            let wrappedCount = 0;
+            let hasWithProfilerImport = false;
+            let importInsertionIndex = 0;
+            const self = this; // Store reference to this for use in callbacks
 
-        // Pattern 1: export default function ComponentName(...)
-        if (newCode.includes(`export default function ${componentName}`)) {
-            newCode = newCode.replace(
-                `export default function ${componentName}`,
-                `function ${componentName}`
-            );
-            // Add wrapped export at the end
-            newCode = newCode.trimEnd() + `\n\nexport default withProfiler(${componentName}, '${componentName}');`;
-            modified = true;
-        }
-        // Pattern 2: export default const ComponentName = ...
-        else if (newCode.includes(`export default const ${componentName}`)) {
-            newCode = newCode.replace(
-                `export default const ${componentName}`,
-                `const ${componentName}`
-            );
-            // Add wrapped export at the end
-            newCode = newCode.trimEnd() + `\n\nexport default withProfiler(${componentName}, '${componentName}');`;
-            modified = true;
-        }
-        // Pattern 3: function ComponentName(...) { ... } then export default ComponentName (separate)
-        else if (newCode.includes(`function ${componentName}`) && newCode.includes(`export default ${componentName}`)) {
-            newCode = newCode.replace(
-                `export default ${componentName}`,
-                `export default withProfiler(${componentName}, '${componentName}')`
-            );
-            modified = true;
-        }
-        // Pattern 4: const ComponentName = (...) => { ... } then export default ComponentName (separate)
-        else if (newCode.includes(`const ${componentName}`) && newCode.includes(`export default ${componentName}`)) {
-            newCode = newCode.replace(
-                `export default ${componentName}`,
-                `export default withProfiler(${componentName}, '${componentName}')`
-            );
-            modified = true;
-        }
-        // Pattern 5: Simple export default ComponentName
-        else if (newCode.includes(`export default ${componentName}`)) {
-            newCode = newCode.replace(
-                `export default ${componentName}`,
-                `export default withProfiler(${componentName}, '${componentName}')`
-            );
-            modified = true;
-        }
+            // First pass: Check if withProfiler is already imported
+            traverse(ast, {
+                ImportDeclaration(path: NodePath<t.ImportDeclaration>) {
+                    if (path.node.source.value.includes('withProfiler')) {
+                        hasWithProfilerImport = true;
+                    }
+                    // Track the last import to know where to insert new imports
+                    const bodyIndex = ast.program.body.indexOf(path.node);
+                    if (bodyIndex > importInsertionIndex) {
+                        importInsertionIndex = bodyIndex;
+                    }
+                },
+            });
 
-        // Add import for withProfiler if needed
-        if (modified && !hasWithProfilerImport) {
-            // Find the last import statement
-            const importLines = code.split('\n');
-            let lastImportIndex = -1;
-            for (let i = 0; i < importLines.length; i++) {
-                if (importLines[i].trim().startsWith('import ')) {
-                    lastImportIndex = i;
+            // Second pass: Transform components
+            traverse(ast, {
+                // Handle export default function ComponentName() {}
+                ExportDefaultDeclaration(path: NodePath<t.ExportDefaultDeclaration>) {
+                    const declaration = path.node.declaration;
+
+                    // Skip if already wrapped
+                    if (self.isAlreadyWrapped(declaration)) {
+                        return;
+                    }
+
+                    let targetComponent: t.Identifier | null = null;
+                    let componentIdentifier: string = componentName;
+
+                    // Case 1: export default function ComponentName() {}
+                    if (t.isFunctionDeclaration(declaration) && declaration.id) {
+                        if (declaration.id.name === componentName) {
+                            targetComponent = declaration.id;
+                            componentIdentifier = declaration.id.name;
+                        }
+                    }
+                    // Case 2: export default const ComponentName = ...
+                    else if (t.isVariableDeclaration(declaration)) {
+                        const varDecl = declaration as t.VariableDeclaration;
+                        if (varDecl.declarations.length > 0) {
+                            const firstDeclarator = varDecl.declarations[0];
+                            if (
+                                t.isIdentifier(firstDeclarator.id) &&
+                                firstDeclarator.id.name === componentName
+                            ) {
+                                targetComponent = firstDeclarator.id;
+                                componentIdentifier = firstDeclarator.id.name;
+                            }
+                        }
+                    }
+                    // Case 3: export default ComponentName (identifier reference)
+                    else if (t.isIdentifier(declaration)) {
+                        if (declaration.name === componentName) {
+                            targetComponent = declaration;
+                            componentIdentifier = declaration.name;
+                        }
+                    }
+                    // Case 4: export default class ComponentName extends ...
+                    else if (t.isClassDeclaration(declaration) && declaration.id) {
+                        if (declaration.id.name === componentName) {
+                            targetComponent = declaration.id;
+                            componentIdentifier = declaration.id.name;
+                        }
+                    }
+
+                    if (targetComponent) {
+                        // Wrap the declaration with withProfiler
+                        const wrappedCall = t.callExpression(
+                            t.identifier('withProfiler'),
+                            [
+                                targetComponent,
+                                t.stringLiteral(componentIdentifier),
+                            ]
+                        );
+
+                        // Replace the export with wrapped version
+                        path.node.declaration = wrappedCall;
+                        wrappedCount++;
+                    }
+                },
+
+                // Handle named exports: export const ComponentName = () => {}
+                ExportNamedDeclaration(path: NodePath<t.ExportNamedDeclaration>) {
+                    if (path.node.exportKind === 'type') {
+                        return; // Skip type exports
+                    }
+
+                    const declaration = path.node.declaration;
+
+                    // Handle: export const ComponentName = ...
+                    if (t.isVariableDeclaration(declaration)) {
+                        for (const declarator of declaration.declarations) {
+                            if (
+                                t.isIdentifier(declarator.id) &&
+                                declarator.id.name === componentName &&
+                                self.isLikelyComponent(declarator.init)
+                            ) {
+                                // Skip if already wrapped
+                                if (self.isAlreadyWrapped(declarator.init)) {
+                                    continue;
+                                }
+
+                                // Wrap the initializer
+                                if (declarator.init) {
+                                    declarator.init = t.callExpression(
+                                        t.identifier('withProfiler'),
+                                        [
+                                            declarator.init,
+                                            t.stringLiteral(componentName),
+                                        ]
+                                    );
+                                    wrappedCount++;
+                                }
+                            }
+                        }
+                    }
+                    // Handle: export function ComponentName() {}
+                    else if (t.isFunctionDeclaration(declaration) && declaration.id) {
+                        if (declaration.id.name === componentName) {
+                            // Skip if already wrapped
+                            if (self.isAlreadyWrapped(declaration)) {
+                                return;
+                            }
+
+                            // For named function exports, we need to wrap the function itself
+                            // This is trickier - we'll wrap it in the export
+                            const wrappedCall = t.callExpression(
+                                t.identifier('withProfiler'),
+                                [
+                                    declaration.id,
+                                    t.stringLiteral(componentName),
+                                ]
+                            );
+
+                            // Replace with: export const ComponentName = withProfiler(ComponentName, 'ComponentName');
+                            path.replaceWith(
+                                t.exportNamedDeclaration(
+                                    t.variableDeclaration('const', [
+                                        t.variableDeclarator(
+                                            declaration.id,
+                                            wrappedCall
+                                        ),
+                                    ])
+                                )
+                            );
+                            wrappedCount++;
+                        }
+                    }
+                },
+            });
+
+            // Add import if needed
+            if (wrappedCount > 0 && !hasWithProfilerImport) {
+                const importDeclaration = t.importDeclaration(
+                    [t.importSpecifier(t.identifier('withProfiler'), t.identifier('withProfiler'))],
+                    t.stringLiteral(this.withProfilerImportPath)
+                );
+
+                // Insert after the last import, or at the beginning if no imports
+                if (importInsertionIndex >= 0 && ast.program.body.length > 0) {
+                    ast.program.body.splice(importInsertionIndex + 1, 0, importDeclaration);
+                } else {
+                    ast.program.body.unshift(importDeclaration);
                 }
             }
-            
-            // Calculate relative path to withProfiler
-            const fileDir = path.dirname(filePath);
-            const relativePath = this.calculateRelativePath(fileDir, 'src/utils/withProfiler');
-            
-            if (lastImportIndex >= 0) {
-                // Add after last import
-                importLines.splice(lastImportIndex + 1, 0, `import { withProfiler } from '${relativePath}';`);
-                newCode = importLines.join('\n');
-            } else {
-                // Add at the top
-                newCode = `import { withProfiler } from '${relativePath}';\n` + newCode;
+
+            // Generate code from AST
+            if (wrappedCount > 0) {
+                const result = generate(ast, {
+                    retainLines: false, // Let generator format the code
+                    compact: false,
+                    comments: true, // Preserve comments
+                    jsescOption: {
+                        quotes: 'single',
+                    },
+                }, code);
+
+                return result.code;
+            }
+
+            return null; // No changes made
+        } catch (error: any) {
+            console.error('AST transformation error:', error);
+            // Return null to indicate failure - caller will handle gracefully
+            return null;
+        }
+    }
+
+    /**
+     * Checks if a node is already wrapped with withProfiler
+     */
+    private isAlreadyWrapped(node: t.Node | null | undefined): boolean {
+        if (!node) return false;
+
+        // Check if it's a call expression to withProfiler
+        if (t.isCallExpression(node)) {
+            if (t.isIdentifier(node.callee) && node.callee.name === 'withProfiler') {
+                return true;
             }
         }
 
-        return modified ? newCode : code;
+        // Check if it's an identifier that references a wrapped component
+        // (This is harder to detect without full scope analysis, so we'll be conservative)
+        return false;
+    }
+
+    /**
+     * Heuristic to determine if a value is likely a React component
+     */
+    private isLikelyComponent(node: t.Node | null | undefined): boolean {
+        if (!node) return false;
+
+        // Arrow functions
+        if (t.isArrowFunctionExpression(node)) return true;
+
+        // Function expressions
+        if (t.isFunctionExpression(node)) return true;
+
+        // Call expressions that might return components (React.memo, forwardRef, etc.)
+        if (t.isCallExpression(node)) {
+            if (t.isIdentifier(node.callee)) {
+                const calleeName = node.callee.name;
+                if (['memo', 'forwardRef', 'lazy'].includes(calleeName)) {
+                    return true;
+                }
+            }
+            // Could be React.memo(...) or React.forwardRef(...)
+            if (t.isMemberExpression(node.callee)) {
+                if (
+                    t.isIdentifier(node.callee.property) &&
+                    ['memo', 'forwardRef', 'lazy'].includes(node.callee.property.name)
+                ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -144,11 +336,11 @@ export class ComponentWrapper {
             // Normalize paths
             const fromNormalized = path.normalize(from).split(path.sep);
             const toNormalized = path.normalize(to).split(path.sep);
-            
+
             // Remove empty parts
-            const fromParts = fromNormalized.filter(p => p && p !== '.');
-            const toParts = toNormalized.filter(p => p && p !== '.');
-            
+            const fromParts = fromNormalized.filter((p) => p && p !== '.');
+            const toParts = toNormalized.filter((p) => p && p !== '.');
+
             // Find common prefix
             let commonLength = 0;
             const minLength = Math.min(fromParts.length, toParts.length);
@@ -159,17 +351,17 @@ export class ComponentWrapper {
                     break;
                 }
             }
-            
+
             // Calculate relative path
             const upLevels = fromParts.length - commonLength;
             const relativeParts = toParts.slice(commonLength);
             const relativePath = '../'.repeat(upLevels) + relativeParts.join('/');
-            
+
             // If same directory, use './'
             if (relativePath === '') {
                 return './' + (relativeParts.length > 0 ? relativeParts.join('/') : 'withProfiler');
             }
-            
+
             return relativePath || './' + (relativeParts.length > 0 ? relativeParts.join('/') : 'withProfiler');
         } catch (error) {
             // Fallback to simple relative path
@@ -177,4 +369,3 @@ export class ComponentWrapper {
         }
     }
 }
-
