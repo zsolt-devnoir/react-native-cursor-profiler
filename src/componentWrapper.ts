@@ -14,47 +14,114 @@ export class ComponentWrapper {
   private withProfilerImportPath: string = "";
 
   /**
-   * Finds the withProfiler file in the React Native project
+   * Recursively searches for withProfiler file anywhere in the directory
+   */
+  private findWithProfilerFileRecursive(
+    dir: string,
+    visited: Set<string> = new Set()
+  ): string | null {
+    // Avoid infinite loops and skip common directories that shouldn't be searched
+    const normalizedDir = path.normalize(dir);
+    if (visited.has(normalizedDir)) {
+      return null;
+    }
+    visited.add(normalizedDir);
+
+    // Skip node_modules, .git, and other common ignore patterns
+    const dirName = path.basename(dir);
+    if (
+      dirName === "node_modules" ||
+      dirName === ".git" ||
+      dirName === ".next" ||
+      dirName === "dist" ||
+      dirName === "build" ||
+      dirName === ".expo" ||
+      dirName.startsWith(".")
+    ) {
+      return null;
+    }
+
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+      // First, check for withProfiler files in current directory
+      for (const entry of entries) {
+        if (entry.isFile()) {
+          const fileName = entry.name.toLowerCase();
+          if (
+            fileName === "withprofiler.tsx" ||
+            fileName === "withprofiler.ts" ||
+            fileName === "withprofiler.jsx" ||
+            fileName === "withprofiler.js"
+          ) {
+            const fullPath = path.join(dir, entry.name);
+            // Verify it exports withProfiler
+            try {
+              const content = fs.readFileSync(fullPath, "utf8");
+              if (
+                content.includes("withProfiler") ||
+                (content.includes("export") && content.includes("withProfiler"))
+              ) {
+                return fullPath;
+              }
+            } catch (error) {
+              // Continue searching
+            }
+          }
+        }
+      }
+
+      // Then recursively search subdirectories
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const subDir = path.join(dir, entry.name);
+          const found = this.findWithProfilerFileRecursive(subDir, visited);
+          if (found) {
+            return found;
+          }
+        }
+      }
+    } catch (error) {
+      // Ignore permission errors and continue
+    }
+
+    return null;
+  }
+
+  /**
+   * Finds the withProfiler file anywhere in the React Native project
    */
   private findWithProfilerFile(
     workspaceRoot: string,
     componentFilePath: string
   ): string | null {
-    // Search for withProfiler file in common locations
-    const searchPaths = [
-      path.join(workspaceRoot, "src", "utils", "withProfiler.tsx"),
-      path.join(workspaceRoot, "src", "utils", "withProfiler.ts"),
-      path.join(workspaceRoot, "src", "utils", "withProfiler.jsx"),
-      path.join(workspaceRoot, "src", "utils", "withProfiler.js"),
-      path.join(workspaceRoot, "utils", "withProfiler.tsx"),
-      path.join(workspaceRoot, "utils", "withProfiler.ts"),
-      path.join(workspaceRoot, "utils", "withProfiler.jsx"),
-      path.join(workspaceRoot, "utils", "withProfiler.js"),
-    ];
+    // Find React Native project root by looking for package.json with react-native
+    let rnProjectRoot = workspaceRoot;
 
-    // Also search relative to component file location
-    const componentDir = path.dirname(componentFilePath);
-    const componentDirFull = path.join(workspaceRoot, componentDir);
+    // Try to find React Native project directory
+    const componentDir = path.dirname(
+      path.join(workspaceRoot, componentFilePath)
+    );
+    let currentDir = componentDir;
 
-    // Search in parent directories for utils/withProfiler
-    let currentDir = componentDirFull;
+    // Search upward for package.json with react-native
     for (let i = 0; i < 10; i++) {
-      // Limit depth to prevent infinite loops
-      const utilsPath = path.join(currentDir, "utils", "withProfiler.tsx");
-      if (fs.existsSync(utilsPath)) {
-        return utilsPath;
-      }
-      const utilsPathTs = path.join(currentDir, "utils", "withProfiler.ts");
-      if (fs.existsSync(utilsPathTs)) {
-        return utilsPathTs;
-      }
-      const utilsPathJsx = path.join(currentDir, "utils", "withProfiler.jsx");
-      if (fs.existsSync(utilsPathJsx)) {
-        return utilsPathJsx;
-      }
-      const utilsPathJs = path.join(currentDir, "utils", "withProfiler.js");
-      if (fs.existsSync(utilsPathJs)) {
-        return utilsPathJs;
+      const packageJsonPath = path.join(currentDir, "package.json");
+      if (fs.existsSync(packageJsonPath)) {
+        try {
+          const packageJson = JSON.parse(
+            fs.readFileSync(packageJsonPath, "utf8")
+          );
+          const hasReactNative =
+            packageJson.dependencies?.["react-native"] ||
+            packageJson.devDependencies?.["react-native"];
+          if (hasReactNative) {
+            rnProjectRoot = currentDir;
+            break;
+          }
+        } catch (error) {
+          // Continue searching
+        }
       }
 
       const parent = path.dirname(currentDir);
@@ -62,10 +129,18 @@ export class ComponentWrapper {
       currentDir = parent;
     }
 
-    // Try the predefined search paths
-    for (const searchPath of searchPaths) {
-      if (fs.existsSync(searchPath)) {
-        return searchPath;
+    // Search recursively from React Native project root
+    const found = this.findWithProfilerFileRecursive(rnProjectRoot);
+    if (found) {
+      return found;
+    }
+
+    // If not found in RN project, search from workspace root
+    if (rnProjectRoot !== workspaceRoot) {
+      const foundInWorkspace =
+        this.findWithProfilerFileRecursive(workspaceRoot);
+      if (foundInWorkspace) {
+        return foundInWorkspace;
       }
     }
 
