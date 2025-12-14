@@ -763,10 +763,22 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
             font-size: 11px;
             opacity: 0;
             transition: opacity 0.2s;
+            margin-right: 4px;
         }
 
         .tree-node:hover .tree-subtree-btn {
             opacity: 1;
+        }
+
+        .tree-selection-count {
+            font-size: 10px;
+            color: var(--vscode-descriptionForeground);
+            background-color: var(--vscode-badge-background);
+            color: var(--vscode-badge-foreground);
+            padding: 2px 6px;
+            border-radius: 10px;
+            margin-left: 6px;
+            font-weight: normal;
         }
 
         .log-display {
@@ -948,6 +960,12 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
                 <span class="section-toggle" id="componentsToggle">▼</span>
             </div>
             <div class="section-content" id="componentsContent">
+                <div style="margin-bottom: 8px; display: flex; gap: 8px;">
+                    <button id="clearAllBtn" style="font-size: 12px; padding: 4px 10px;">Clear All</button>
+                    <span style="flex: 1; font-size: 11px; color: var(--vscode-descriptionForeground); align-self: center;">
+                        Click checkbox to select/deselect • Hover over nodes to see subtree actions
+                    </span>
+                </div>
                 <div class="treeview" id="treeview">
                     <div class="loading">Loading component tree...</div>
                 </div>
@@ -1036,6 +1054,15 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
                 return;
             }
             vscode.postMessage({ type: 'wrapComponents', components: selected });
+        });
+
+        document.getElementById('clearAllBtn').addEventListener('click', () => {
+            if (selectedComponents.size === 0) {
+                return;
+            }
+            if (confirm('Clear all ' + selectedComponents.size + ' selected component(s)?')) {
+                clearAllSelections();
+            }
         });
 
         document.getElementById('startBtn').addEventListener('click', () => {
@@ -1133,6 +1160,9 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
             const hasChildren = node.children && node.children.length > 0;
             const isExpanded = expandedNodes.has(node.path);
             const isSelected = selectedComponents.has(node.path);
+            
+            // Count selected items in subtree
+            const subtreeSelectionCount = countSubtreeSelections(node);
 
             const div = document.createElement('div');
             div.className = 'tree-node' + (isSelected ? ' selected' : '');
@@ -1167,20 +1197,48 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
                 toggleSelection(node.path);
             };
 
-            // Subtree selection button
-            const subtreeBtn = document.createElement('button');
-            subtreeBtn.className = 'tree-subtree-btn';
-            subtreeBtn.textContent = 'Select Subtree';
-            subtreeBtn.onclick = (e) => {
-                e.stopPropagation();
-                selectSubtree(node);
-            };
+            // Selection count badge (if subtree has selections)
+            if (hasChildren && subtreeSelectionCount > 0) {
+                const countBadge = document.createElement('span');
+                countBadge.className = 'tree-selection-count';
+                countBadge.textContent = subtreeSelectionCount;
+                countBadge.title = subtreeSelectionCount + ' item(s) selected in subtree';
+                label.appendChild(countBadge);
+            }
+
+            // Subtree action buttons
+            const buttonContainer = document.createElement('span');
+            buttonContainer.style.display = 'flex';
+            buttonContainer.style.gap = '4px';
+            buttonContainer.style.marginLeft = 'auto';
+            
+            if (hasChildren) {
+                const selectSubtreeBtn = document.createElement('button');
+                selectSubtreeBtn.className = 'tree-subtree-btn';
+                selectSubtreeBtn.textContent = 'Select';
+                selectSubtreeBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    selectSubtree(node);
+                };
+                buttonContainer.appendChild(selectSubtreeBtn);
+
+                if (subtreeSelectionCount > 0) {
+                    const deselectSubtreeBtn = document.createElement('button');
+                    deselectSubtreeBtn.className = 'tree-subtree-btn';
+                    deselectSubtreeBtn.textContent = 'Deselect';
+                    deselectSubtreeBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        deselectSubtree(node);
+                    };
+                    buttonContainer.appendChild(deselectSubtreeBtn);
+                }
+            }
 
             content.appendChild(expandIcon);
             content.appendChild(checkbox);
             content.appendChild(label);
             if (hasChildren) {
-                content.appendChild(subtreeBtn);
+                content.appendChild(buttonContainer);
             }
             div.appendChild(content);
 
@@ -1195,6 +1253,19 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
             }
 
             return div;
+        }
+
+        function countSubtreeSelections(node) {
+            let count = 0;
+            if (selectedComponents.has(node.path)) {
+                count++;
+            }
+            if (node.children) {
+                node.children.forEach(child => {
+                    count += countSubtreeSelections(child);
+                });
+            }
+            return count;
         }
 
         function toggleNodeExpansion(path) {
@@ -1225,6 +1296,25 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
                 }
             }
             addNodeAndChildren(node);
+            renderTree(treeData);
+            updateSelectedComponents();
+        }
+
+        function deselectSubtree(node) {
+            // Remove this node and all its children recursively
+            function removeNodeAndChildren(n) {
+                selectedComponents.delete(n.path);
+                if (n.children) {
+                    n.children.forEach(child => removeNodeAndChildren(child));
+                }
+            }
+            removeNodeAndChildren(node);
+            renderTree(treeData);
+            updateSelectedComponents();
+        }
+
+        function clearAllSelections() {
+            selectedComponents.clear();
             renderTree(treeData);
             updateSelectedComponents();
         }
