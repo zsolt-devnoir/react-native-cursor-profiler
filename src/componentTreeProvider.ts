@@ -83,8 +83,14 @@ export class ComponentTreeProvider {
         // Check if src directory exists, otherwise scan the RN project root
         const scanPath = fs.existsSync(srcPath) ? srcPath : rnProjectPath;
         
+        // If scanning from src, include it in the relative path
+        // Otherwise use just the relativeBase
+        const initialRelativePath = fs.existsSync(srcPath) 
+            ? (relativeBase ? `${relativeBase}/src` : 'src')
+            : (relativeBase ? relativeBase : '');
+        
         // Scan with relative path prefix for monorepo support
-        return this.scanDirectory(scanPath, relativeBase ? relativeBase : '');
+        return this.scanDirectory(scanPath, initialRelativePath);
     }
 
     private async scanDirectory(dirPath: string, relativePath: string = ''): Promise<ComponentTreeNode[]> {
