@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 import { ProfilerServer } from './profilerServer';
 import { ComponentTreeProvider } from './componentTreeProvider';
 import { ProfileLog, WebViewMessage } from './types';
@@ -281,6 +282,80 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(componentNames, 
     }
 
     /**
+     * Searches for a file containing a component with the given name
+     */
+    private async findFileByComponentName(componentName: string, searchRoot: string): Promise<string | null> {
+        try {
+            const searchPaths = [
+                path.join(searchRoot, 'src'),
+                path.join(searchRoot),
+            ];
+
+            for (const searchPath of searchPaths) {
+                if (!fs.existsSync(searchPath)) continue;
+
+                const files = this.getAllComponentFiles(searchPath);
+                
+                for (const file of files) {
+                    try {
+                        const content = fs.readFileSync(file, 'utf8');
+                        // Check if file contains the component name as an export
+                        const componentPatterns = [
+                            new RegExp(`export\\s+(?:default\\s+)?(?:function|const|class)\\s+${componentName}\\b`),
+                            new RegExp(`export\\s+default\\s+${componentName}\\b`),
+                            new RegExp(`export\\s+{\\s*${componentName}\\s*}`),
+                        ];
+
+                        for (const pattern of componentPatterns) {
+                            if (pattern.test(content)) {
+                                return file;
+                            }
+                        }
+                    } catch (error) {
+                        // Continue searching
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error searching for component:', error);
+        }
+
+        return null;
+    }
+
+    /**
+     * Recursively gets all component files from a directory
+     */
+    private getAllComponentFiles(dir: string): string[] {
+        const files: string[] = [];
+        
+        try {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            
+            for (const entry of entries) {
+                if (entry.name.startsWith('.') || entry.name === 'node_modules') {
+                    continue;
+                }
+
+                const fullPath = path.join(dir, entry.name);
+                
+                if (entry.isDirectory()) {
+                    files.push(...this.getAllComponentFiles(fullPath));
+                } else if (entry.isFile()) {
+                    const ext = path.extname(entry.name).toLowerCase();
+                    if (['.tsx', '.jsx', '.ts', '.js'].includes(ext)) {
+                        files.push(fullPath);
+                    }
+                }
+            }
+        } catch (error) {
+            // Ignore errors
+        }
+
+        return files;
+    }
+
+    /**
      * Automatically wraps components with withProfiler HOC
      */
     private async wrapComponents(components: string[]) {
@@ -304,14 +379,91 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(componentNames, 
         vscode.window.showInformationMessage(`Wrapping ${components.length} components...`);
 
         for (const componentPath of components) {
+            // Handle component path format: "path/to/file.tsx::ComponentName" or just "path/to/file.tsx"
+            // If componentPath doesn't contain '::' and doesn't look like a file path, it might be just a component name
+            if (!componentPath.includes('::') && !componentPath.includes('/') && !componentPath.includes('\\')) {
+                console.warn(`Component path appears to be just a name without file path: ${componentPath}`);
+                vscode.window.showWarningMessage(
+                    `Component "${componentPath}" doesn't have a file path. Please select the component from the tree, not just the name.`
+                );
+                failCount++;
+                continue;
+            }
+
             const [filePath] = componentPath.split('::');
             const componentName = componentPath.includes('::') 
                 ? componentPath.split('::')[1] 
                 : path.basename(filePath, path.extname(filePath));
 
+            // Validate that we have a file path
+            if (!filePath || filePath.trim() === '') {
+                console.error(`Invalid component path: ${componentPath} - missing file path`);
+                failCount++;
+                continue;
+            }
+
+            // Resolve the full file path
+            // Component paths are relative to workspace root, but we need to check if they're
+            // relative to the RN project root or workspace root
+            let fullFilePath = path.join(workspaceRoot, filePath);
+            
+            // If file doesn't exist at workspace root, try RN project root
+            if (!fs.existsSync(fullFilePath) && rnPath !== workspaceRoot) {
+                // Check if path is relative to RN project
+                const rnRelativePath = path.join(rnPath, filePath);
+                if (fs.existsSync(rnRelativePath)) {
+                    fullFilePath = rnRelativePath;
+                } else {
+                    // Try with src/ prefix
+                    const srcPath = path.join(rnPath, 'src', filePath);
+                    if (fs.existsSync(srcPath)) {
+                        fullFilePath = srcPath;
+                    } else {
+                        // Try removing src/ from filePath if it exists
+                        const filePathWithoutSrc = filePath.startsWith('src/') 
+                            ? filePath.substring(4) 
+                            : filePath;
+                        const altPath = path.join(rnPath, 'src', filePathWithoutSrc);
+                        if (fs.existsSync(altPath)) {
+                            fullFilePath = altPath;
+                        } else {
+                            console.error(`File not found: ${filePath} (tried: ${fullFilePath}, ${rnRelativePath}, ${srcPath}, ${altPath})`);
+                            failCount++;
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // Verify file exists
+            if (!fs.existsSync(fullFilePath)) {
+                // Try to find the file by searching for the component name in the codebase
+                console.warn(`File not found at ${fullFilePath}, searching for component "${componentName}"...`);
+                
+                const foundFile = await this.findFileByComponentName(componentName, rnPath);
+                if (foundFile) {
+                    fullFilePath = foundFile;
+                    console.log(`Found component "${componentName}" in file: ${foundFile}`);
+                } else {
+                    console.error(`File not found: ${filePath} (resolved to: ${fullFilePath}) and could not find component "${componentName}" in codebase`);
+                    vscode.window.showWarningMessage(
+                        `Could not find file for component "${componentName}". ` +
+                        `Expected path: ${filePath}. Please ensure the component is selected correctly from the tree.`
+                    );
+                    failCount++;
+                    continue;
+                }
+            }
+
+            // Calculate relative path from file to workspace root for componentWrapper
+            const relativePathFromWorkspace = path.relative(workspaceRoot, fullFilePath);
+            const componentPathForWrapper = componentPath.includes('::')
+                ? `${relativePathFromWorkspace}::${componentName}`
+                : relativePathFromWorkspace;
+
             try {
                 const success = await this.componentWrapper.wrapComponent(
-                    componentPath,
+                    componentPathForWrapper,
                     componentName,
                     workspaceRoot
                 );
@@ -319,6 +471,7 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(componentNames, 
                 if (success) {
                     successCount++;
                 } else {
+                    console.error(`Failed to wrap ${componentName} in ${filePath}`);
                     failCount++;
                 }
             } catch (error: any) {
