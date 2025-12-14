@@ -1141,31 +1141,50 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
     </div>
 
     <script>
-        const vscode = acquireVsCodeApi();
-        let selectedComponents = new Set();
-        let isRecording = false;
-        let logs = [];
-        let treeData = [];
-        let expandedNodes = new Set();
-        let collapsedSections = new Set(['logs', 'analysis']); // Start with logs and analysis collapsed
+        (function() {
+            try {
+                const vscode = acquireVsCodeApi();
+                console.log('[Webview] VS Code API acquired');
+                
+                let selectedComponents = new Set();
+                let isRecording = false;
+                let logs = [];
+                let treeData = [];
+                let expandedNodes = new Set();
+                let collapsedSections = new Set(['logs', 'analysis']); // Start with logs and analysis collapsed
 
-        // Initialize
-        window.addEventListener('load', () => {
-            console.log('[Webview] Window loaded, sending ready message');
-            vscode.postMessage({ type: 'ready' });
-            updateStatus(false);
-            updateSectionStates();
-        });
-        
-        // Also try sending ready immediately if DOM is already loaded
-        if (document.readyState === 'complete' || document.readyState === 'interactive') {
-            console.log('[Webview] DOM already loaded, sending ready message immediately');
-            setTimeout(() => {
-                vscode.postMessage({ type: 'ready' });
-                updateStatus(false);
-                updateSectionStates();
-            }, 100);
-        }
+                // Send ready message immediately
+                function sendReady() {
+                    try {
+                        console.log('[Webview] Sending ready message');
+                        vscode.postMessage({ type: 'ready' });
+                        console.log('[Webview] Ready message sent');
+                    } catch (error) {
+                        console.error('[Webview] Error sending ready message:', error);
+                    }
+                }
+
+                // Initialize
+                window.addEventListener('load', () => {
+                    console.log('[Webview] Window loaded');
+                    sendReady();
+                    updateStatus(false);
+                    updateSectionStates();
+                });
+                
+                // Also try sending ready immediately if DOM is already loaded
+                if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                    console.log('[Webview] DOM already loaded, sending ready immediately');
+                    sendReady();
+                    updateStatus(false);
+                    updateSectionStates();
+                } else {
+                    // Send after a short delay to ensure everything is ready
+                    setTimeout(() => {
+                        console.log('[Webview] Sending ready after timeout');
+                        sendReady();
+                    }, 200);
+                }
 
         // Section collapse/expand
         function toggleSection(sectionId) {
@@ -1609,6 +1628,10 @@ Device Version: \${log.deviceInfo?.version || 'unknown'}
                 vscode.postMessage({ type: 'requestLogs' });
             }
         }, 1000);
+            } catch (error) {
+                console.error('[Webview] Fatal error in script:', error);
+            }
+        })();
     </script>
 </body>
 </html>`;
