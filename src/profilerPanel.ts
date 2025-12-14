@@ -435,6 +435,15 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
         continue;
       }
 
+      // Skip directories - only process actual component files
+      const fileExt = path.extname(filePath).toLowerCase();
+      if (![".tsx", ".jsx", ".ts", ".js"].includes(fileExt)) {
+        console.warn(
+          `Skipping ${componentPath} - not a component file (missing extension)`
+        );
+        continue;
+      }
+
       // Resolve the full file path
       // Component paths from the tree are already relative to workspace root
       // They include the full path from workspace root (e.g., "apps/mobile/casino/src/components/...")
