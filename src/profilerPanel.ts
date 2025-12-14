@@ -193,6 +193,59 @@ export class ProfilerPanel {
           }
         }
         break;
+
+      case "copyToClipboard":
+        // Copy text to clipboard
+        if (message.text) {
+          await vscode.env.clipboard.writeText(message.text);
+          vscode.window.showInformationMessage("Logs copied to clipboard!");
+        }
+        break;
+
+      case "saveLogsToFile":
+        // Save logs to file
+        if (message.content) {
+          const defaultFilename = message.defaultFilename || "profiler-logs.txt";
+          
+          // Get workspace folder for default save location
+          const workspaceFolders = vscode.workspace.workspaceFolders;
+          let defaultUri: vscode.Uri | undefined;
+          
+          if (workspaceFolders && workspaceFolders.length > 0) {
+            defaultUri = vscode.Uri.joinPath(
+              workspaceFolders[0].uri,
+              defaultFilename
+            );
+          } else {
+            defaultUri = vscode.Uri.file(defaultFilename);
+          }
+          
+          const uri = await vscode.window.showSaveDialog({
+            defaultUri: defaultUri,
+            filters: {
+              "Text Files": ["txt"],
+              "JSON Files": ["json"],
+              "All Files": ["*"],
+            },
+          });
+
+          if (uri) {
+            try {
+              await vscode.workspace.fs.writeFile(
+                uri,
+                Buffer.from(message.content, "utf8")
+              );
+              vscode.window.showInformationMessage(
+                `Logs saved to ${path.basename(uri.fsPath)}`
+              );
+            } catch (error: any) {
+              vscode.window.showErrorMessage(
+                `Failed to save logs: ${error.message}`
+              );
+            }
+          }
+        }
+        break;
     }
   }
 
@@ -982,6 +1035,10 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
                 <span class="section-toggle" id="logsToggle">▼</span>
             </div>
             <div class="section-content" id="logsContent">
+                <div style="margin-bottom: 8px; display: flex; gap: 8px;">
+                    <button id="copyLogsBtn" style="font-size: 12px; padding: 4px 10px;" disabled>Copy Logs</button>
+                    <button id="saveLogsBtn" style="font-size: 12px; padding: 4px 10px;" disabled>Save to File</button>
+                </div>
                 <div class="log-display" id="logDisplay">
                     <div class="empty-state">No logs yet. Start recording to see profiling data.</div>
                 </div>
@@ -1077,6 +1134,14 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
             vscode.postMessage({ type: 'analyzeLogs' });
         });
 
+        document.getElementById('copyLogsBtn').addEventListener('click', () => {
+            copyLogsToClipboard();
+        });
+
+        document.getElementById('saveLogsBtn').addEventListener('click', () => {
+            saveLogsToFile();
+        });
+
         // Handle messages from extension
         window.addEventListener('message', event => {
             const message = event.data;
@@ -1116,6 +1181,9 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
             }
         });
 
+        // Initialize button states
+        updateLogsCount();
+
         function updateStatus(recording) {
             const indicator = document.getElementById('statusIndicator');
             indicator.className = 'status-indicator ' + (recording ? 'recording' : 'idle');
@@ -1139,6 +1207,12 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
             if (countEl) {
                 countEl.textContent = '(' + logs.length + ' logs)';
             }
+            // Update button states
+            const copyBtn = document.getElementById('copyLogsBtn');
+            const saveBtn = document.getElementById('saveLogsBtn');
+            const hasLogs = logs.length > 0;
+            if (copyBtn) copyBtn.disabled = !hasLogs;
+            if (saveBtn) saveBtn.disabled = !hasLogs;
         }
 
         function renderTree(tree) {
@@ -1350,6 +1424,65 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
             }).join('');
             
             container.scrollTop = 0;
+        }
+
+        function formatLogsForExport(logs) {
+            if (logs.length === 0) {
+                return 'No profiling logs available.';
+            }
+
+            const header = 'React Native Profiler Logs\n' +
+                'Generated: ' + new Date().toISOString() + '\n' +
+                'Total Logs: ' + logs.length + '\n' +
+                '='.repeat(80) + '\n\n';
+
+            const logEntries = logs.map((log, index) => {
+                const timestamp = new Date(log.timestamp).toISOString();
+                return \`Log #\${index + 1}
+Component: \${log.id}
+Phase: \${log.phase}
+Actual Duration: \${log.actualDuration.toFixed(2)}ms
+Base Duration: \${log.baseDuration.toFixed(2)}ms
+Start Time: \${log.startTime.toFixed(2)}ms
+Commit Time: \${log.commitTime.toFixed(2)}ms
+Timestamp: \${timestamp}
+Device OS: \${log.deviceInfo?.os || 'unknown'}
+Device Version: \${log.deviceInfo?.version || 'unknown'}
+\${log.deviceInfo?.model ? 'Device Model: ' + log.deviceInfo.model + '\\n' : ''}\${log.interactions && log.interactions.length > 0 ? 'Interactions: ' + log.interactions.join(', ') + '\\n' : ''}\${'-'.repeat(80)}\`;
+            }).join('\n\n');
+
+            return header + logEntries;
+        }
+
+        function copyLogsToClipboard() {
+            if (logs.length === 0) {
+                alert('No logs to copy');
+                return;
+            }
+
+            const formatted = formatLogsForExport(logs);
+            
+            // Use VS Code's clipboard API
+            vscode.postMessage({
+                type: 'copyToClipboard',
+                text: formatted
+            });
+        }
+
+        function saveLogsToFile() {
+            if (logs.length === 0) {
+                alert('No logs to save');
+                return;
+            }
+
+            const formatted = formatLogsForExport(logs);
+            
+            // Send message to extension to save file
+            vscode.postMessage({
+                type: 'saveLogsToFile',
+                content: formatted,
+                defaultFilename: 'profiler-logs-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5) + '.txt'
+            });
         }
 
         function renderAnalysis(analysis) {
