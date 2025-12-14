@@ -41,16 +41,22 @@ export class ProfilerPanel {
     // Handle messages from the webview
     this.panel.webview.onDidReceiveMessage(
       async (message: WebViewMessage) => {
-        // Handle command messages
-        if (message.type === "startRecording") {
-          await vscode.commands.executeCommand("rnProfilerAI.startRecording");
-        } else if (message.type === "stopRecording") {
-          await vscode.commands.executeCommand("rnProfilerAI.stopRecording");
-        } else if (message.type === "analyzeLogs") {
-          await vscode.commands.executeCommand("rnProfilerAI.analyzeLogs");
-        } else {
-          // Handle other messages
-          await this.handleMessage(message);
+        console.log(`Received message from webview: ${message.type}`);
+        try {
+          // Handle command messages
+          if (message.type === "startRecording") {
+            await vscode.commands.executeCommand("rnProfilerAI.startRecording");
+          } else if (message.type === "stopRecording") {
+            await vscode.commands.executeCommand("rnProfilerAI.stopRecording");
+          } else if (message.type === "analyzeLogs") {
+            await vscode.commands.executeCommand("rnProfilerAI.analyzeLogs");
+          } else {
+            // Handle other messages
+            await this.handleMessage(message);
+          }
+        } catch (error: any) {
+          console.error(`Error handling message ${message.type}:`, error);
+          console.error("Error stack:", error.stack);
         }
       },
       null,
@@ -158,25 +164,29 @@ export class ProfilerPanel {
     switch (message.type) {
       case "ready":
         // Send component tree when webview is ready
+        console.log("Webview ready message received, starting component tree load...");
+        
+        // Load component tree asynchronously (don't block the message handler)
         // Use a timeout to prevent infinite loading
         const timeoutPromise = new Promise<ComponentTreeNode[]>((_, reject) => {
-          setTimeout(() => reject(new Error("Component tree loading timeout after 30 seconds")), 30000);
+          setTimeout(() => {
+            console.error("Component tree loading timeout after 30 seconds");
+            reject(new Error("Component tree loading timeout after 30 seconds"));
+          }, 30000);
         });
         
-        try {
-          console.log("Starting component tree loading...");
-          const tree = await Promise.race([
-            this.componentTreeProvider.getComponentTree(),
-            timeoutPromise
-          ]);
-          
+        Promise.race([
+          this.componentTreeProvider.getComponentTree(),
+          timeoutPromise
+        ]).then((tree) => {
           console.log(`Component tree loaded successfully: ${tree.length} items`);
           this.sendMessage({
             type: "componentTree",
             tree: tree,
           });
-        } catch (error: any) {
+        }).catch((error: any) => {
           console.error("Error loading component tree:", error);
+          console.error("Error stack:", error.stack);
           // Always send a response, even if empty, so UI doesn't hang
           this.sendMessage({
             type: "componentTree",
@@ -185,9 +195,9 @@ export class ProfilerPanel {
           
           const errorMessage = error.message || String(error);
           vscode.window.showErrorMessage(
-            `Failed to load component tree: ${errorMessage}. Check Output panel for details.`
+            `Failed to load component tree: ${errorMessage}. Check Output panel (RN Profiler AI) for details.`
           );
-        }
+        });
         break;
 
       case "selectComponents":

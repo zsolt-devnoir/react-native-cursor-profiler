@@ -87,10 +87,20 @@ export class ComponentTreeProvider {
       if (!rnProjectPath) {
         // Fallback to workspace root
         console.warn("No React Native project found, scanning workspace root");
-        return this.scanDirectory(this.workspaceRoot);
+        if (!this.workspaceRoot) {
+          return [];
+        }
+        return this.scanDirectory(this.workspaceRoot, "", 0);
       }
 
       console.log(`Scanning React Native project at: ${rnProjectPath}`);
+      
+      // Check if path exists
+      if (!fs.existsSync(rnProjectPath)) {
+        console.error(`React Native project path does not exist: ${rnProjectPath}`);
+        return [];
+      }
+      
       // Calculate relative path from workspace root for proper path display
       const relativeBase = path.relative(this.workspaceRoot, rnProjectPath);
 
@@ -98,25 +108,40 @@ export class ComponentTreeProvider {
       const initialRelativePath = relativeBase ? relativeBase : "";
 
       // Scan with relative path prefix for monorepo support
-      const tree = await this.scanDirectory(rnProjectPath, initialRelativePath);
+      const tree = await this.scanDirectory(rnProjectPath, initialRelativePath, 0);
       console.log(`Component tree loaded: ${tree.length} top-level items, ${this.fileCount} files scanned`);
       return tree;
     } catch (error: any) {
       console.error("Error in getComponentTree:", error);
+      console.error("Stack trace:", error.stack);
       throw error; // Re-throw so caller can handle it
     }
   }
 
   private async scanDirectory(
     dirPath: string,
-    relativePath: string = ""
+    relativePath: string = "",
+    depth: number = 0
   ): Promise<ComponentTreeNode[]> {
     const nodes: ComponentTreeNode[] = [];
+    const maxDepth = 10; // Limit recursion depth to prevent infinite loops
 
     try {
       // Check if directory exists
       if (!fs.existsSync(dirPath)) {
         console.warn(`Directory does not exist: ${dirPath}`);
+        return [];
+      }
+
+      // Limit recursion depth
+      if (depth > maxDepth) {
+        console.warn(`Reached max depth (${maxDepth}) at ${dirPath}, stopping recursion`);
+        return [];
+      }
+
+      // Limit total files scanned to prevent infinite loops
+      if (this.fileCount >= this.maxFilesToScan) {
+        console.warn(`Reached file scan limit (${this.maxFilesToScan}), stopping scan`);
         return [];
       }
 
@@ -145,7 +170,7 @@ export class ComponentTreeProvider {
 
           if (entry.isDirectory()) {
             try {
-              const children = await this.scanDirectory(fullPath, relPath);
+              const children = await this.scanDirectory(fullPath, relPath, depth + 1);
               if (children.length > 0) {
                 nodes.push({
                   name: entry.name,
