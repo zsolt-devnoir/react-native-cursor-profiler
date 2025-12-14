@@ -567,48 +567,85 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
             font-family: var(--vscode-font-family);
             color: var(--vscode-foreground);
             background-color: var(--vscode-editor-background);
-            padding: 20px;
+            padding: 16px;
             overflow-x: hidden;
         }
 
         .container {
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 12px;
             max-width: 100%;
         }
 
         .section {
-            background-color: var(--vscode-editor-background);
+            background-color: var(--vscode-sideBar-background);
             border: 1px solid var(--vscode-panel-border);
-            border-radius: 4px;
-            padding: 15px;
+            border-radius: 6px;
+            overflow: hidden;
         }
 
-        .section-title {
-            font-size: 16px;
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background-color: var(--vscode-sideBarSectionHeader-background);
+            border-bottom: 1px solid var(--vscode-panel-border);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .section-header:hover {
+            background-color: var(--vscode-list-hoverBackground);
+        }
+
+        .section-header-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
             font-weight: 600;
-            margin-bottom: 10px;
             color: var(--vscode-foreground);
+        }
+
+        .section-toggle {
+            font-size: 12px;
+            color: var(--vscode-descriptionForeground);
+            transition: transform 0.2s;
+        }
+
+        .section-toggle.collapsed {
+            transform: rotate(-90deg);
+        }
+
+        .section-content {
+            padding: 16px;
+            display: block;
+        }
+
+        .section-content.collapsed {
+            display: none;
         }
 
         .controls {
             display: flex;
-            gap: 10px;
+            gap: 8px;
             flex-wrap: wrap;
         }
 
         button {
-            padding: 8px 16px;
+            padding: 6px 14px;
             background-color: var(--vscode-button-background);
             color: var(--vscode-button-foreground);
             border: none;
             border-radius: 4px;
             cursor: pointer;
             font-size: 13px;
+            transition: opacity 0.2s;
         }
 
-        button:hover {
+        button:hover:not(:disabled) {
             background-color: var(--vscode-button-hoverBackground);
         }
 
@@ -626,17 +663,19 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
         }
 
         .treeview {
-            max-height: 400px;
+            max-height: 500px;
             overflow-y: auto;
-            border: 1px solid var(--vscode-panel-border);
-            padding: 10px;
-            background-color: var(--vscode-editor-background);
+            font-size: 13px;
         }
 
         .tree-node {
-            padding: 4px 0;
+            display: flex;
+            align-items: center;
+            padding: 4px 8px;
             cursor: pointer;
             user-select: none;
+            border-radius: 3px;
+            margin: 2px 0;
         }
 
         .tree-node:hover {
@@ -648,61 +687,176 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
             color: var(--vscode-list-activeSelectionForeground);
         }
 
+        .tree-node-content {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .tree-expand-icon {
+            width: 16px;
+            height: 16px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            color: var(--vscode-descriptionForeground);
+            transition: transform 0.2s;
+            flex-shrink: 0;
+        }
+
+        .tree-expand-icon.collapsed {
+            transform: rotate(-90deg);
+        }
+
+        .tree-expand-icon.no-children {
+            width: 16px;
+            opacity: 0;
+        }
+
+        .tree-checkbox {
+            width: 16px;
+            height: 16px;
+            border: 1px solid var(--vscode-checkbox-border);
+            border-radius: 3px;
+            background-color: var(--vscode-checkbox-background);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            margin-right: 4px;
+        }
+
+        .tree-checkbox.checked {
+            background-color: var(--vscode-checkbox-selectBackground);
+            border-color: var(--vscode-checkbox-selectBorder);
+        }
+
+        .tree-checkbox.checked::after {
+            content: '✓';
+            color: var(--vscode-checkbox-foreground);
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .tree-node-label {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
         .tree-children {
             margin-left: 20px;
+            display: block;
+        }
+
+        .tree-children.collapsed {
+            display: none;
+        }
+
+        .tree-subtree-btn {
+            margin-left: auto;
+            padding: 2px 8px;
+            font-size: 11px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .tree-node:hover .tree-subtree-btn {
+            opacity: 1;
         }
 
         .log-display {
-            max-height: 300px;
+            max-height: 400px;
             overflow-y: auto;
             font-family: var(--vscode-editor-font-family);
             font-size: 12px;
             background-color: var(--vscode-textCodeBlock-background);
-            padding: 10px;
+            padding: 12px;
             border-radius: 4px;
+            border: 1px solid var(--vscode-panel-border);
         }
 
         .log-entry {
-            padding: 4px 0;
+            padding: 6px 0;
             border-bottom: 1px solid var(--vscode-panel-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
         }
 
         .log-entry:last-child {
             border-bottom: none;
         }
 
+        .log-entry-info {
+            flex: 1;
+        }
+
+        .log-entry-component {
+            font-weight: 600;
+            color: var(--vscode-textLink-foreground);
+        }
+
+        .log-entry-details {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            margin-top: 2px;
+        }
+
+        .log-entry-duration {
+            font-weight: 600;
+            color: var(--vscode-textLink-foreground);
+            margin-left: 8px;
+        }
+
         .analysis-output {
-            max-height: 500px;
+            max-height: 600px;
             overflow-y: auto;
-            padding: 15px;
+            padding: 16px;
             background-color: var(--vscode-textCodeBlock-background);
             border-radius: 4px;
+            border: 1px solid var(--vscode-panel-border);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .analysis-output h1 {
+            margin-top: 0;
+            margin-bottom: 16px;
+            font-size: 20px;
+            border-bottom: 2px solid var(--vscode-panel-border);
+            padding-bottom: 8px;
         }
 
         .analysis-output h2 {
-            margin-top: 20px;
-            margin-bottom: 10px;
+            margin-top: 24px;
+            margin-bottom: 12px;
             font-size: 18px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+            padding-bottom: 6px;
         }
 
         .analysis-output h3 {
-            margin-top: 15px;
+            margin-top: 16px;
             margin-bottom: 8px;
             font-size: 16px;
         }
 
         .analysis-output p {
-            margin-bottom: 10px;
-            line-height: 1.6;
+            margin-bottom: 12px;
         }
 
         .analysis-output ul, .analysis-output ol {
-            margin-left: 20px;
-            margin-bottom: 10px;
+            margin-left: 24px;
+            margin-bottom: 12px;
         }
 
         .analysis-output li {
-            margin-bottom: 5px;
+            margin-bottom: 6px;
         }
 
         .analysis-output code {
@@ -710,22 +864,29 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
             padding: 2px 6px;
             border-radius: 3px;
             font-family: var(--vscode-editor-font-family);
+            font-size: 12px;
         }
 
         .analysis-output pre {
             background-color: var(--vscode-textCodeBlock-background);
-            padding: 10px;
+            padding: 12px;
             border-radius: 4px;
             overflow-x: auto;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
+            border: 1px solid var(--vscode-panel-border);
+        }
+
+        .analysis-output pre code {
+            background: none;
+            padding: 0;
         }
 
         .status-indicator {
             display: inline-block;
-            width: 10px;
-            height: 10px;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
-            margin-right: 8px;
+            margin-right: 6px;
         }
 
         .status-indicator.recording {
@@ -744,44 +905,83 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
 
         .loading {
             text-align: center;
-            padding: 20px;
+            padding: 24px;
             color: var(--vscode-descriptionForeground);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 24px;
+            color: var(--vscode-descriptionForeground);
+            font-style: italic;
         }
     </style>
 </head>
 <body>
     <div class="container">
+        <!-- Profiling Controls -->
         <div class="section">
-            <div class="section-title">
-                <span class="status-indicator" id="statusIndicator"></span>
-                Profiling Controls
+            <div class="section-header" onclick="toggleSection('controls')">
+                <div class="section-header-title">
+                    <span class="status-indicator" id="statusIndicator"></span>
+                    <span>Profiling Controls</span>
+                </div>
+                <span class="section-toggle" id="controlsToggle">▼</span>
             </div>
-            <div class="controls">
-                <button id="wrapBtn">Wrap Components</button>
-                <button id="startBtn" class="primary">Start Recording</button>
-                <button id="stopBtn" disabled>Stop Recording</button>
-                <button id="analyzeBtn" disabled>Analyze Logs</button>
-            </div>
-        </div>
-
-        <div class="section">
-            <div class="section-title">Component Tree</div>
-            <div class="treeview" id="treeview">
-                <div class="loading">Loading component tree...</div>
-            </div>
-        </div>
-
-        <div class="section">
-            <div class="section-title">Live Logs</div>
-            <div class="log-display" id="logDisplay">
-                <div class="loading">No logs yet. Start recording to see profiling data.</div>
+            <div class="section-content" id="controlsContent">
+                <div class="controls">
+                    <button id="wrapBtn">Wrap Components</button>
+                    <button id="startBtn" class="primary">Start Recording</button>
+                    <button id="stopBtn" disabled>Stop Recording</button>
+                    <button id="analyzeBtn" disabled>Analyze Logs</button>
+                </div>
             </div>
         </div>
 
+        <!-- Component Selection -->
         <div class="section">
-            <div class="section-title">AI Analysis</div>
-            <div class="analysis-output" id="analysisOutput">
-                <div class="loading">Analysis will appear here after you analyze logs.</div>
+            <div class="section-header" onclick="toggleSection('components')">
+                <div class="section-header-title">
+                    <span>Component Selection</span>
+                    <span id="selectedCount" style="font-size: 11px; color: var(--vscode-descriptionForeground); font-weight: normal;">(0 selected)</span>
+                </div>
+                <span class="section-toggle" id="componentsToggle">▼</span>
+            </div>
+            <div class="section-content" id="componentsContent">
+                <div class="treeview" id="treeview">
+                    <div class="loading">Loading component tree...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Logs -->
+        <div class="section">
+            <div class="section-header" onclick="toggleSection('logs')">
+                <div class="section-header-title">
+                    <span>Live Logs</span>
+                    <span id="logsCount" style="font-size: 11px; color: var(--vscode-descriptionForeground); font-weight: normal;">(0 logs)</span>
+                </div>
+                <span class="section-toggle" id="logsToggle">▼</span>
+            </div>
+            <div class="section-content" id="logsContent">
+                <div class="log-display" id="logDisplay">
+                    <div class="empty-state">No logs yet. Start recording to see profiling data.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Analysis -->
+        <div class="section">
+            <div class="section-header" onclick="toggleSection('analysis')">
+                <div class="section-header-title">
+                    <span>AI Analysis</span>
+                </div>
+                <span class="section-toggle" id="analysisToggle">▼</span>
+            </div>
+            <div class="section-content" id="analysisContent">
+                <div class="analysis-output" id="analysisOutput">
+                    <div class="empty-state">Analysis will appear here after you analyze logs.</div>
+                </div>
             </div>
         </div>
     </div>
@@ -791,12 +991,42 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
         let selectedComponents = new Set();
         let isRecording = false;
         let logs = [];
+        let treeData = [];
+        let expandedNodes = new Set();
+        let collapsedSections = new Set(['logs', 'analysis']); // Start with logs and analysis collapsed
 
         // Initialize
         window.addEventListener('load', () => {
             vscode.postMessage({ type: 'ready' });
             updateStatus(false);
+            updateSectionStates();
         });
+
+        // Section collapse/expand
+        function toggleSection(sectionId) {
+            if (collapsedSections.has(sectionId)) {
+                collapsedSections.delete(sectionId);
+            } else {
+                collapsedSections.add(sectionId);
+            }
+            updateSectionStates();
+        }
+
+        function updateSectionStates() {
+            ['controls', 'components', 'logs', 'analysis'].forEach(id => {
+                const content = document.getElementById(id + 'Content');
+                const toggle = document.getElementById(id + 'Toggle');
+                if (content && toggle) {
+                    if (collapsedSections.has(id)) {
+                        content.classList.add('collapsed');
+                        toggle.classList.add('collapsed');
+                    } else {
+                        content.classList.remove('collapsed');
+                        toggle.classList.remove('collapsed');
+                    }
+                }
+            });
+        }
 
         // Button handlers
         document.getElementById('wrapBtn').addEventListener('click', () => {
@@ -870,6 +1100,20 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
             document.getElementById('analyzeBtn').disabled = logs.length === 0;
         }
 
+        function updateSelectedCount() {
+            const countEl = document.getElementById('selectedCount');
+            if (countEl) {
+                countEl.textContent = '(' + selectedComponents.size + ' selected)';
+            }
+        }
+
+        function updateLogsCount() {
+            const countEl = document.getElementById('logsCount');
+            if (countEl) {
+                countEl.textContent = '(' + logs.length + ' logs)';
+            }
+        }
+
         function renderTree(tree) {
             const container = document.getElementById('treeview');
             if (!tree || tree.length === 0) {
@@ -877,40 +1121,75 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
                 return;
             }
 
-            // Store tree data for re-rendering
             treeData = tree;
-
             container.innerHTML = '';
             tree.forEach(node => {
-                container.appendChild(createTreeNode(node));
+                container.appendChild(createTreeNode(node, 0));
             });
+            updateSelectedCount();
         }
 
-        function createTreeNode(node) {
+        function createTreeNode(node, depth) {
+            const hasChildren = node.children && node.children.length > 0;
+            const isExpanded = expandedNodes.has(node.path);
+            const isSelected = selectedComponents.has(node.path);
+
             const div = document.createElement('div');
-            div.className = 'tree-node';
+            div.className = 'tree-node' + (isSelected ? ' selected' : '');
             div.dataset.path = node.path;
 
-            const isSelected = selectedComponents.has(node.path);
-            if (isSelected) {
-                div.classList.add('selected');
-            }
+            const content = document.createElement('div');
+            content.className = 'tree-node-content';
 
-            // Add checkbox or indicator for selected state
-            const indicator = isSelected ? '✓ ' : '';
-            div.innerHTML = '<span>' + indicator + node.name + '</span>';
+            // Expand/collapse icon
+            const expandIcon = document.createElement('span');
+            expandIcon.className = 'tree-expand-icon' + (hasChildren ? '' : ' no-children') + (isExpanded ? '' : ' collapsed');
+            expandIcon.textContent = hasChildren ? '▼' : '';
+            expandIcon.onclick = (e) => {
+                e.stopPropagation();
+                toggleNodeExpansion(node.path);
+            };
 
-            div.addEventListener('click', (e) => {
+            // Checkbox
+            const checkbox = document.createElement('span');
+            checkbox.className = 'tree-checkbox' + (isSelected ? ' checked' : '');
+            checkbox.onclick = (e) => {
                 e.stopPropagation();
                 toggleSelection(node.path);
-                updateSelectedComponents();
-            });
+            };
 
-            if (node.children && node.children.length > 0) {
+            // Label
+            const label = document.createElement('span');
+            label.className = 'tree-node-label';
+            label.textContent = node.name;
+            label.onclick = (e) => {
+                e.stopPropagation();
+                toggleSelection(node.path);
+            };
+
+            // Subtree selection button
+            const subtreeBtn = document.createElement('button');
+            subtreeBtn.className = 'tree-subtree-btn';
+            subtreeBtn.textContent = 'Select Subtree';
+            subtreeBtn.onclick = (e) => {
+                e.stopPropagation();
+                selectSubtree(node);
+            };
+
+            content.appendChild(expandIcon);
+            content.appendChild(checkbox);
+            content.appendChild(label);
+            if (hasChildren) {
+                content.appendChild(subtreeBtn);
+            }
+            div.appendChild(content);
+
+            // Children
+            if (hasChildren) {
                 const childrenDiv = document.createElement('div');
-                childrenDiv.className = 'tree-children';
+                childrenDiv.className = 'tree-children' + (isExpanded ? '' : ' collapsed');
                 node.children.forEach(child => {
-                    childrenDiv.appendChild(createTreeNode(child));
+                    childrenDiv.appendChild(createTreeNode(child, depth + 1));
                 });
                 div.appendChild(childrenDiv);
             }
@@ -918,7 +1197,14 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
             return div;
         }
 
-        let treeData = [];
+        function toggleNodeExpansion(path) {
+            if (expandedNodes.has(path)) {
+                expandedNodes.delete(path);
+            } else {
+                expandedNodes.add(path);
+            }
+            renderTree(treeData);
+        }
 
         function toggleSelection(path) {
             if (selectedComponents.has(path)) {
@@ -926,11 +1212,25 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
             } else {
                 selectedComponents.add(path);
             }
-            // Re-render tree with updated selection state
             renderTree(treeData);
+            updateSelectedComponents();
+        }
+
+        function selectSubtree(node) {
+            // Add this node and all its children recursively
+            function addNodeAndChildren(n) {
+                selectedComponents.add(n.path);
+                if (n.children) {
+                    n.children.forEach(child => addNodeAndChildren(child));
+                }
+            }
+            addNodeAndChildren(node);
+            renderTree(treeData);
+            updateSelectedComponents();
         }
 
         function updateSelectedComponents() {
+            updateSelectedCount();
             vscode.postMessage({
                 type: 'selectComponents',
                 components: Array.from(selectedComponents)
@@ -939,19 +1239,27 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
 
         function renderLogs(logs) {
             const container = document.getElementById('logDisplay');
+            updateLogsCount();
+            
             if (logs.length === 0) {
-                container.innerHTML = '<div class="loading">No logs yet.</div>';
+                container.innerHTML = '<div class="empty-state">No logs yet.</div>';
                 return;
             }
 
-            container.innerHTML = logs.map(log => {
+            container.innerHTML = logs.slice().reverse().map(log => {
+                const time = new Date(log.timestamp).toLocaleTimeString();
                 return \`<div class="log-entry">
-                    <strong>\${log.id}</strong> - \${log.phase} - \${log.actualDuration.toFixed(2)}ms
-                    <br><small>\${new Date(log.timestamp).toLocaleTimeString()}</small>
+                    <div class="log-entry-info">
+                        <span class="log-entry-component">\${log.id}</span>
+                        <div class="log-entry-details">
+                            \${log.phase} • \${time}
+                        </div>
+                    </div>
+                    <span class="log-entry-duration">\${log.actualDuration.toFixed(2)}ms</span>
                 </div>\`;
             }).join('');
             
-            container.scrollTop = container.scrollHeight;
+            container.scrollTop = 0;
         }
 
         function renderAnalysis(analysis) {
