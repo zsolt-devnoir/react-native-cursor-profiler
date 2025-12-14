@@ -5,6 +5,7 @@ import { parse } from "@babel/parser";
 import traverse, { NodePath } from "@babel/traverse";
 import generate from "@babel/generator";
 import * as t from "@babel/types";
+import * as prettier from "prettier";
 
 /**
  * Automatically wraps React Native components with withProfiler HOC using AST transformation.
@@ -202,6 +203,10 @@ export class ComponentWrapper {
       // Only write if content changed
       if (transformedContent && transformedContent !== originalContent) {
         fs.writeFileSync(fullPath, transformedContent, "utf8");
+        
+        // Run VS Code format on save actions
+        await this.runVSCodeFormatOnSaveActions(fullPath);
+        
         return true;
       }
 
@@ -442,24 +447,57 @@ export class ComponentWrapper {
 
       // Generate code from AST
       if (wrappedCount > 0) {
-        // Use options that preserve formatting as much as possible
+        // Generate code from AST (Babel will reformat, but we'll fix it with Prettier)
         const result = generate(
           ast,
           {
-            retainLines: true, // Preserve original line numbers
+            retainLines: false, // Let Prettier handle formatting
             compact: false,
-            comments: true, // Preserve comments
+            comments: true,
             concise: false,
             minified: false,
-            jsescOption: {
-              quotes: "single",
-              wrap: true,
-            },
+            shouldPrintComment: () => true,
           },
           code
         );
 
-        return result.code;
+        let generatedCode = result.code;
+
+        // Format with Prettier to match project's style
+        try {
+          // Try to find Prettier config from the workspace
+          const workspaceFolders = vscode.workspace.workspaceFolders;
+          if (workspaceFolders && workspaceFolders.length > 0) {
+            const workspaceRoot = workspaceFolders[0].uri.fsPath;
+            const absoluteFilePath = path.isAbsolute(filePath) 
+              ? filePath 
+              : path.join(workspaceRoot, filePath);
+            
+            // Resolve Prettier config from the file's location or workspace root
+            const prettierConfig = await prettier.resolveConfig(absoluteFilePath, {
+              editorconfig: true,
+            });
+
+            // Format with Prettier using the project's config
+            generatedCode = await prettier.format(generatedCode, {
+              ...prettierConfig,
+              filepath: absoluteFilePath, // Let Prettier infer parser from file extension
+            });
+          } else {
+            // Fallback: format with default Prettier settings
+            generatedCode = await prettier.format(generatedCode, {
+              parser: "typescript",
+              semi: true,
+              singleQuote: false,
+              tabWidth: 2,
+            });
+          }
+        } catch (prettierError) {
+          // If Prettier fails, use the generated code as-is
+          console.warn("Prettier formatting failed, using generated code:", prettierError);
+        }
+
+        return generatedCode;
       }
 
       return null; // No changes made
@@ -520,6 +558,98 @@ export class ComponentWrapper {
     }
 
     return false;
+  }
+
+  /**
+   * Runs VS Code format on save actions (format document, organize imports, fix all, etc.)
+   */
+  private async runVSCodeFormatOnSaveActions(filePath: string): Promise<void> {
+    try {
+      const fileUri = vscode.Uri.file(filePath);
+      
+      // Open the document if not already open
+      let document = vscode.workspace.textDocuments.find(
+        (doc) => doc.uri.fsPath === filePath
+      );
+      
+      if (!document) {
+        // Open the document
+        document = await vscode.workspace.openTextDocument(fileUri);
+      }
+
+      // Get VS Code settings for format on save
+      const config = vscode.workspace.getConfiguration("editor", fileUri);
+      const formatOnSave = config.get<boolean>("formatOnSave", false);
+      const codeActionsOnSave = config.get<any>("codeActionsOnSave", {});
+
+      // Run format document if formatOnSave is enabled
+      if (formatOnSave) {
+        try {
+          await vscode.commands.executeCommand(
+            "editor.action.formatDocument",
+            fileUri
+          );
+        } catch (error) {
+          console.warn("Failed to format document:", error);
+        }
+      }
+
+      // Run code actions on save (organize imports, fix all, etc.)
+      if (codeActionsOnSave && Object.keys(codeActionsOnSave).length > 0) {
+        // Organize imports
+        if (
+          codeActionsOnSave["source.organizeImports"] === true ||
+          codeActionsOnSave["source.organizeImports"] === "explicit"
+        ) {
+          try {
+            await vscode.commands.executeCommand(
+              "editor.action.organizeImports",
+              fileUri
+            );
+          } catch (error) {
+            console.warn("Failed to organize imports:", error);
+          }
+        }
+
+        // Fix all
+        if (
+          codeActionsOnSave["source.fixAll"] === true ||
+          codeActionsOnSave["source.fixAll"] === "explicit"
+        ) {
+          try {
+            await vscode.commands.executeCommand(
+              "editor.action.fixAll",
+              fileUri
+            );
+          } catch (error) {
+            console.warn("Failed to run fix all:", error);
+          }
+        }
+
+        // Remove unused imports
+        if (
+          codeActionsOnSave["source.removeUnusedImports"] === true ||
+          codeActionsOnSave["source.removeUnusedImports"] === "explicit"
+        ) {
+          try {
+            await vscode.commands.executeCommand(
+              "editor.action.removeUnusedImports",
+              fileUri
+            );
+          } catch (error) {
+            console.warn("Failed to remove unused imports:", error);
+          }
+        }
+      }
+
+      // Save the document if it was modified
+      if (document && document.isDirty) {
+        await document.save();
+      }
+    } catch (error) {
+      // If running VS Code actions fails, it's not critical - the file is already written
+      console.warn("Failed to run VS Code format on save actions:", error);
+    }
   }
 
   /**
