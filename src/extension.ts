@@ -7,11 +7,19 @@ import { ProfileLog } from "./types";
 let profilerPanel: ProfilerPanel | undefined;
 let profilerServer: ProfilerServer | undefined;
 let componentTreeProvider: ComponentTreeProvider | undefined;
+let outputChannel: vscode.OutputChannel;
 
 export async function activate(context: vscode.ExtensionContext) {
   try {
+    // Create output channel for logging
+    outputChannel = vscode.window.createOutputChannel("RN Profiler AI");
+    outputChannel.show(true); // Show the output channel
+    outputChannel.appendLine("RN Profiler AI extension is now active!");
     console.log("RN Profiler AI extension is now active!");
     vscode.window.showInformationMessage("RN Profiler AI extension activated!");
+    
+    // Add to subscriptions for cleanup
+    context.subscriptions.push(outputChannel);
 
     // Check if this is a React Native project (supports monorepos)
     const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -31,11 +39,20 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Initialize component tree provider
     componentTreeProvider = new ComponentTreeProvider(context);
+    
+    // Set output channel for all modules
+    ProfilerPanel.setOutputChannel(outputChannel);
+    // Import and set output channel for ComponentTreeProvider
+    const componentTreeModule = await import("./componentTreeProvider");
+    if (componentTreeModule.setOutputChannel) {
+      componentTreeModule.setOutputChannel(outputChannel);
+    }
 
     // Register commands
     const showPanelCommand = vscode.commands.registerCommand(
       "rnProfilerAI.showProfilerPanel",
       () => {
+        outputChannel.appendLine("Command: showProfilerPanel called");
         // Always use createOrShow - it handles checking for existing panels
         profilerPanel = ProfilerPanel.createOrShow(
           context.extensionUri,

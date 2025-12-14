@@ -21,6 +21,18 @@ export class ProfilerPanel {
   private componentWrapper: ComponentWrapper;
   private storedLogs: ProfileLog[] = [];
   private selectedComponents: string[] = [];
+  private static outputChannel: vscode.OutputChannel | undefined;
+
+  public static setOutputChannel(channel: vscode.OutputChannel) {
+    ProfilerPanel.outputChannel = channel;
+  }
+
+  private log(message: string) {
+    if (ProfilerPanel.outputChannel) {
+      ProfilerPanel.outputChannel.appendLine(`[ProfilerPanel] ${message}`);
+    }
+    console.log(`[ProfilerPanel] ${message}`);
+  }
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -41,7 +53,7 @@ export class ProfilerPanel {
     // Handle messages from the webview
     this.panel.webview.onDidReceiveMessage(
       async (message: WebViewMessage) => {
-        console.log(`Received message from webview: ${message.type}`);
+        this.log(`Received message from webview: ${message.type}`);
         try {
           // Handle command messages
           if (message.type === "startRecording") {
@@ -55,13 +67,18 @@ export class ProfilerPanel {
             await this.handleMessage(message);
           }
         } catch (error: any) {
+          this.log(`ERROR handling message ${message.type}: ${error.message}`);
+          if (error.stack) {
+            this.log(`Stack: ${error.stack}`);
+          }
           console.error(`Error handling message ${message.type}:`, error);
-          console.error("Error stack:", error.stack);
         }
       },
       null,
       this.disposables
     );
+    
+    this.log("ProfilerPanel initialized and webview message handler registered");
   }
 
   private static currentPanel: ProfilerPanel | undefined;
@@ -70,17 +87,28 @@ export class ProfilerPanel {
     extensionUri: vscode.Uri,
     componentTreeProvider: ComponentTreeProvider
   ): ProfilerPanel {
+    if (ProfilerPanel.outputChannel) {
+      ProfilerPanel.outputChannel.appendLine("ProfilerPanel.createOrShow called");
+    }
+    
     const column = vscode.window.activeTextEditor
       ? vscode.window.activeTextEditor.viewColumn
       : undefined;
 
     // If we already have a panel that's still alive, show it
     if (ProfilerPanel.currentPanel) {
+      if (ProfilerPanel.outputChannel) {
+        ProfilerPanel.outputChannel.appendLine("Reusing existing panel");
+      }
       ProfilerPanel.currentPanel.panel.reveal(column);
       return ProfilerPanel.currentPanel;
     }
 
     // Otherwise, create a new panel
+    if (ProfilerPanel.outputChannel) {
+      ProfilerPanel.outputChannel.appendLine("Creating new webview panel");
+    }
+    
     const panel = vscode.window.createWebviewPanel(
       ProfilerPanel.viewType,
       "RN Profiler AI",
@@ -96,6 +124,9 @@ export class ProfilerPanel {
     );
 
     ProfilerPanel.currentPanel = new ProfilerPanel(panel, extensionUri, componentTreeProvider);
+    if (ProfilerPanel.outputChannel) {
+      ProfilerPanel.outputChannel.appendLine("New ProfilerPanel instance created");
+    }
     return ProfilerPanel.currentPanel;
   }
 
@@ -164,13 +195,13 @@ export class ProfilerPanel {
     switch (message.type) {
       case "ready":
         // Send component tree when webview is ready
-        console.log("Webview ready message received, starting component tree load...");
+        this.log("Webview ready message received, starting component tree load...");
         
         // Load component tree asynchronously (don't block the message handler)
         // Use a timeout to prevent infinite loading
         const timeoutPromise = new Promise<ComponentTreeNode[]>((_, reject) => {
           setTimeout(() => {
-            console.error("Component tree loading timeout after 30 seconds");
+            this.log("ERROR: Component tree loading timeout after 30 seconds");
             reject(new Error("Component tree loading timeout after 30 seconds"));
           }, 30000);
         });
@@ -179,14 +210,17 @@ export class ProfilerPanel {
           this.componentTreeProvider.getComponentTree(),
           timeoutPromise
         ]).then((tree) => {
-          console.log(`Component tree loaded successfully: ${tree.length} items`);
+          this.log(`Component tree loaded successfully: ${tree.length} items`);
           this.sendMessage({
             type: "componentTree",
             tree: tree,
           });
         }).catch((error: any) => {
+          this.log(`ERROR loading component tree: ${error.message}`);
+          if (error.stack) {
+            this.log(`Stack: ${error.stack}`);
+          }
           console.error("Error loading component tree:", error);
-          console.error("Error stack:", error.stack);
           // Always send a response, even if empty, so UI doesn't hang
           this.sendMessage({
             type: "componentTree",
@@ -1117,10 +1151,21 @@ export const COMPONENTS_TO_PROFILE: string[] = ${JSON.stringify(
 
         // Initialize
         window.addEventListener('load', () => {
+            console.log('[Webview] Window loaded, sending ready message');
             vscode.postMessage({ type: 'ready' });
             updateStatus(false);
             updateSectionStates();
         });
+        
+        // Also try sending ready immediately if DOM is already loaded
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            console.log('[Webview] DOM already loaded, sending ready message immediately');
+            setTimeout(() => {
+                vscode.postMessage({ type: 'ready' });
+                updateStatus(false);
+                updateSectionStates();
+            }, 100);
+        }
 
         // Section collapse/expand
         function toggleSection(sectionId) {

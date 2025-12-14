@@ -6,6 +6,19 @@ import traverse from "@babel/traverse";
 import * as t from "@babel/types";
 import { ComponentTreeNode } from "./types";
 
+let outputChannel: vscode.OutputChannel | undefined;
+
+export function setOutputChannel(channel: vscode.OutputChannel) {
+  outputChannel = channel;
+}
+
+function log(message: string) {
+  if (outputChannel) {
+    outputChannel.appendLine(`[ComponentTree] ${message}`);
+  }
+  console.log(`[ComponentTree] ${message}`);
+}
+
 /**
  * Provides component tree structure by scanning React Native project files
  */
@@ -77,27 +90,27 @@ export class ComponentTreeProvider {
       this.fileCount = 0;
       
       if (!this.workspaceRoot) {
-        console.warn("No workspace root found");
+        log("WARN: No workspace root found");
         return [];
       }
 
-      console.log("Finding React Native project...");
+      log("Finding React Native project...");
       // Find React Native project (supports monorepos)
       const rnProjectPath = await this.findReactNativeProject();
       if (!rnProjectPath) {
         // Fallback to workspace root
-        console.warn("No React Native project found, scanning workspace root");
+        log("WARN: No React Native project found, scanning workspace root");
         if (!this.workspaceRoot) {
           return [];
         }
         return this.scanDirectory(this.workspaceRoot, "", 0);
       }
 
-      console.log(`Scanning React Native project at: ${rnProjectPath}`);
+      log(`Scanning React Native project at: ${rnProjectPath}`);
       
       // Check if path exists
       if (!fs.existsSync(rnProjectPath)) {
-        console.error(`React Native project path does not exist: ${rnProjectPath}`);
+        log(`ERROR: React Native project path does not exist: ${rnProjectPath}`);
         return [];
       }
       
@@ -109,11 +122,14 @@ export class ComponentTreeProvider {
 
       // Scan with relative path prefix for monorepo support
       const tree = await this.scanDirectory(rnProjectPath, initialRelativePath, 0);
-      console.log(`Component tree loaded: ${tree.length} top-level items, ${this.fileCount} files scanned`);
+      log(`Component tree loaded: ${tree.length} top-level items, ${this.fileCount} files scanned`);
       return tree;
     } catch (error: any) {
+      log(`ERROR in getComponentTree: ${error.message}`);
+      if (error.stack) {
+        log(`Stack: ${error.stack}`);
+      }
       console.error("Error in getComponentTree:", error);
-      console.error("Stack trace:", error.stack);
       throw error; // Re-throw so caller can handle it
     }
   }
