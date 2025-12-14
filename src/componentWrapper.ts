@@ -156,15 +156,15 @@ export class ComponentWrapper {
     componentName: string,
     workspaceRoot: string
   ): Promise<boolean> {
-    try {
-      // Handle component path format: "path/to/file.tsx::ComponentName" or just "path/to/file.tsx"
+        try {
+            // Handle component path format: "path/to/file.tsx::ComponentName" or just "path/to/file.tsx"
       const [filePath] = componentPath.split("::");
-      const fullPath = path.join(workspaceRoot, filePath);
+            const fullPath = path.join(workspaceRoot, filePath);
 
-      if (!fs.existsSync(fullPath)) {
-        console.error(`Component file not found: ${fullPath}`);
-        return false;
-      }
+            if (!fs.existsSync(fullPath)) {
+                console.error(`Component file not found: ${fullPath}`);
+                return false;
+            }
 
       // Find the withProfiler file dynamically
       const withProfilerPath = this.findWithProfilerFile(
@@ -200,25 +200,25 @@ export class ComponentWrapper {
         fullPath
       );
 
-      // Only write if content changed
+            // Only write if content changed
       if (transformedContent && transformedContent !== originalContent) {
         fs.writeFileSync(fullPath, transformedContent, "utf8");
         
         // Run VS Code format on save actions
         await this.runVSCodeFormatOnSaveActions(fullPath);
         
-        return true;
-      }
+                return true;
+            }
 
-      return false;
-    } catch (error: any) {
-      console.error(`Error wrapping component ${componentName}:`, error);
+            return false;
+        } catch (error: any) {
+            console.error(`Error wrapping component ${componentName}:`, error);
       // If AST transformation fails, log the error but don't crash
-      return false;
+            return false;
+        }
     }
-  }
 
-  /**
+    /**
    * Wraps a component using AST transformation
    */
   private async wrapComponentWithAST(
@@ -447,57 +447,25 @@ export class ComponentWrapper {
 
       // Generate code from AST
       if (wrappedCount > 0) {
-        // Generate code from AST (Babel will reformat, but we'll fix it with Prettier)
+        // Use retainLines: true to preserve original line structure as much as possible
+        // This minimizes formatting changes
         const result = generate(
           ast,
           {
-            retainLines: false, // Let Prettier handle formatting
+            retainLines: true, // Preserve original line numbers to minimize changes
             compact: false,
             comments: true,
             concise: false,
             minified: false,
             shouldPrintComment: () => true,
+            // Don't force formatting - try to preserve original style
           },
-          code
+          code // Pass original code for source map
         );
 
-        let generatedCode = result.code;
-
-        // Format with Prettier to match project's style
-        try {
-          // Try to find Prettier config from the workspace
-          const workspaceFolders = vscode.workspace.workspaceFolders;
-          if (workspaceFolders && workspaceFolders.length > 0) {
-            const workspaceRoot = workspaceFolders[0].uri.fsPath;
-            const absoluteFilePath = path.isAbsolute(filePath) 
-              ? filePath 
-              : path.join(workspaceRoot, filePath);
-            
-            // Resolve Prettier config from the file's location or workspace root
-            const prettierConfig = await prettier.resolveConfig(absoluteFilePath, {
-              editorconfig: true,
-            });
-
-            // Format with Prettier using the project's config
-            generatedCode = await prettier.format(generatedCode, {
-              ...prettierConfig,
-              filepath: absoluteFilePath, // Let Prettier infer parser from file extension
-            });
-          } else {
-            // Fallback: format with default Prettier settings
-            generatedCode = await prettier.format(generatedCode, {
-              parser: "typescript",
-              semi: true,
-              singleQuote: false,
-              tabWidth: 2,
-            });
-          }
-        } catch (prettierError) {
-          // If Prettier fails, use the generated code as-is
-          console.warn("Prettier formatting failed, using generated code:", prettierError);
-        }
-
-        return generatedCode;
+        // With retainLines: true, Babel tries to preserve line structure
+        // This minimizes formatting changes - only the lines we actually modified should change
+        return result.code;
       }
 
       return null; // No changes made
@@ -561,9 +529,37 @@ export class ComponentWrapper {
   }
 
   /**
+   * Counts how many lines changed between two code strings
+   */
+  private countChangedLines(original: string, modified: string): number {
+    const originalLines = original.split('\n');
+    const modifiedLines = modified.split('\n');
+    let changed = 0;
+    
+    const maxLines = Math.max(originalLines.length, modifiedLines.length);
+    for (let i = 0; i < maxLines; i++) {
+      const origLine = originalLines[i] || '';
+      const modLine = modifiedLines[i] || '';
+      if (origLine.trim() !== modLine.trim()) {
+        changed++;
+      }
+    }
+    
+    return changed;
+  }
+
+  /**
    * Runs VS Code format on save actions (format document, organize imports, fix all, etc.)
+   * DISABLED by default to avoid over-formatting - only format what we changed
    */
   private async runVSCodeFormatOnSaveActions(filePath: string): Promise<void> {
+    // Skip VS Code format actions to avoid reformatting the entire file
+    // The Prettier formatting above should be sufficient
+    // If you want to enable this, uncomment the code below, but be aware it will reformat the entire file
+    return;
+    
+    /*
+    // DISABLED - causes entire file reformatting
     try {
       const fileUri = vscode.Uri.file(filePath);
       
@@ -650,38 +646,39 @@ export class ComponentWrapper {
       // If running VS Code actions fails, it's not critical - the file is already written
       console.warn("Failed to run VS Code format on save actions:", error);
     }
+    */
   }
 
-  /**
-   * Calculates relative path between two paths
-   */
-  private calculateRelativePath(from: string, to: string): string {
-    try {
-      // Normalize paths
-      const fromNormalized = path.normalize(from).split(path.sep);
-      const toNormalized = path.normalize(to).split(path.sep);
-
-      // Remove empty parts
+    /**
+     * Calculates relative path between two paths
+     */
+    private calculateRelativePath(from: string, to: string): string {
+        try {
+            // Normalize paths
+            const fromNormalized = path.normalize(from).split(path.sep);
+            const toNormalized = path.normalize(to).split(path.sep);
+            
+            // Remove empty parts
       const fromParts = fromNormalized.filter((p) => p && p !== ".");
       const toParts = toNormalized.filter((p) => p && p !== ".");
-
-      // Find common prefix
-      let commonLength = 0;
-      const minLength = Math.min(fromParts.length, toParts.length);
-      for (let i = 0; i < minLength; i++) {
-        if (fromParts[i] === toParts[i]) {
-          commonLength++;
-        } else {
-          break;
-        }
-      }
-
-      // Calculate relative path
-      const upLevels = fromParts.length - commonLength;
-      const relativeParts = toParts.slice(commonLength);
+            
+            // Find common prefix
+            let commonLength = 0;
+            const minLength = Math.min(fromParts.length, toParts.length);
+            for (let i = 0; i < minLength; i++) {
+                if (fromParts[i] === toParts[i]) {
+                    commonLength++;
+                } else {
+                    break;
+                }
+            }
+            
+            // Calculate relative path
+            const upLevels = fromParts.length - commonLength;
+            const relativeParts = toParts.slice(commonLength);
       const relativePath = "../".repeat(upLevels) + relativeParts.join("/");
-
-      // If same directory, use './'
+            
+            // If same directory, use './'
       if (relativePath === "") {
         return (
           "./" +
@@ -694,9 +691,9 @@ export class ComponentWrapper {
         "./" +
           (relativeParts.length > 0 ? relativeParts.join("/") : "withProfiler")
       );
-    } catch (error) {
-      // Fallback to simple relative path
+        } catch (error) {
+            // Fallback to simple relative path
       return "../utils/withProfiler";
+        }
     }
-  }
 }
